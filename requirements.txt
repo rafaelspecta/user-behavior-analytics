@@ -1,0 +1,32 @@
+# Kafka
+kafka-python==2.0.2
+confluent-kafka==1.9.2
+
+# Spark
+pyspark==3.3.0
+delta-spark==2.2.0
+hudi-spark3.3-bundle_2.12==0.12.2
+
+# Data Quality
+dbt-core==1.0.0
+dbt-spark==1.0.0
+great-expectations==0.15.15
+
+# Data Generation
+faker==13.3.1
+
+# Airflow
+apache-airflow==2.3.0
+apache-airflow-providers-apache-spark==2.1.0
+apache-airflow-providers-amazon==4.0.0
+
+# AWS
+boto3==1.26.0
+awscli==1.27.0
+
+# Utilities
+python-dotenv==0.20.0
+pyyaml==6.0
+pandas==1.5.0
+numpy==1.23.0
+requests==2.28.1 
