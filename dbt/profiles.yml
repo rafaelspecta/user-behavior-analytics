@@ -1,0 +1,31 @@
+user_behavior_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      host: "{{ env_var('TRINO_HOST') }}"
+      port: "{{ env_var('TRINO_PORT') }}"
+      user: "{{ env_var('TRINO_USER') }}"
+      password: "{{ env_var('TRINO_PASSWORD') }}"
+      catalog: hive
+      schema: staging
+
+user_behavior_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: spark
+      method: thrift          # or 'http' depending on your Spark setup
+      host: spark-master       # name of your Spark master service in docker-compose
+      port: 10000              # Spark Thrift server port (adjust if needed)
+      schema: staging          # default schema
+      catalog: hive            # optional, needed if Spark uses Hive metastore
+      user: ""                 # optional if no auth
+      password: ""             # optional if no auth
+      thrift_transport: buffered
+      # extra options for Spark + S3
+      spark_options:
+        spark.hadoop.fs.s3a.access.key: "test"
+        spark.hadoop.fs.s3a.secret.key: "test"
+        spark.hadoop.fs.s3a.endpoint: "http://localhost:4566"  # if using Localstack S3
+        spark.hadoop.fs.s3a.path.style.access: "true"
