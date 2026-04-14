@@ -12,9 +12,8 @@ to initialise after docker compose up.
 
 from datetime import datetime, timedelta
 
-from airflow import DAG
+from airflow.sdk import DAG
 from airflow.operators.bash import BashOperator
-from airflow.utils.dates import days_ago
 
 default_args = {
     "owner": "airflow",
@@ -27,7 +26,7 @@ dag = DAG(
     "pipeline_health_monitor",
     default_args=default_args,
     description="Checks health of Kafka, Spark, and S3 pipeline components",
-    schedule_interval="*/5 * * * *",
+    schedule="*/5 * * * *",
     start_date=datetime(2026, 4, 14, 0, 10, 0),
     catchup=False,
     max_active_runs=1,

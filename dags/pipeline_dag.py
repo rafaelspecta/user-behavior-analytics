@@ -12,7 +12,7 @@ Spark Structured Streaming -> Delta Lake on S3). This DAG showcases
 what an Airflow-orchestrated batch pipeline looks like using only the
 Python standard library so it works in a vanilla Airflow image.
 
-Trigger manually from the Airflow UI (schedule_interval=None).
+Trigger manually from the Airflow UI (schedule=None).
 """
 
 import json
@@ -21,9 +21,8 @@ import random
 import uuid
 from datetime import datetime, timedelta
 
-from airflow import DAG
+from airflow.sdk import DAG
 from airflow.operators.python import PythonOperator
-from airflow.utils.dates import days_ago
 
 # ---------------------------------------------------------------------------
 # Original production commands (require Spark + Kafka inside the Airflow
@@ -71,8 +70,8 @@ dag = DAG(
     "clickstream_pipeline",
     default_args=default_args,
     description="End-to-end clickstream data pipeline (simplified demo)",
-    schedule_interval=None,
-    start_date=days_ago(1),
+    schedule=None,
+    start_date=datetime(2025, 1, 1),
     catchup=False,
     tags=["clickstream", "analytics", "demo"],
 )

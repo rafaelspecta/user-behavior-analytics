@@ -278,5 +278,4 @@ These can be combined with any orchestration architecture above. For example:
 ## Related Documentation
 
 - [roadmap.md](roadmap.md) — Deferred items, implementation specs, and future vision
-- [airflow-migration-plan.md](airflow-migration-plan.md) — Migration from Airflow 2.3 to 2.4+ for `@continuous` scheduling
 

@@ -26,7 +26,7 @@ All Maven package names use the `_2.12` suffix because Spark is built with Scala
 | **aws-java-sdk-bundle** | 1.12.262 | Required by hadoop-aws 3.3.4. Using a different version causes class-loading conflicts with S3A filesystem. |
 | **spark-sql-kafka** | 3.5.3 | Kafka connector for Structured Streaming. Must match the Spark version exactly. |
 | **Kafka** | 7.0.0 (CP) | Confluent Platform 7.0.0 images. No native ARM64 images — runs under QEMU emulation on Apple Silicon. |
-| **Airflow** | 2.3.0 | Vanilla image (no custom build). Uses `LocalExecutor` with PostgreSQL. Future upgrade to 2.4+ enables `@continuous` scheduling. |
+| **Airflow** | 3.2.0 | Vanilla image. Uses `LocalExecutor` with PostgreSQL. Supports `@continuous` scheduling, data-aware workflows, and modern FastAPI-based UI. No authentication required (`SimpleAuthManager` with all-admins). |
 | **LocalStack** | 3.8 | Pinned to avoid breaking changes. Provides S3 and Redshift emulation. |
 | **Trino** | 380 | SQL query engine. Currently starts but has no catalog configured (see [roadmap](roadmap.md)). |
 | **PostgreSQL** | 13 | Airflow metadata database. |
@@ -56,7 +56,7 @@ The batch job uses the same packages minus `spark-sql-kafka` (it doesn't read fr
 | Spark Worker | `spark:3.5.3-scala2.12-java17-python3-ubuntu` | multi-arch | — |
 | Streaming Job | `spark:3.5.3-scala2.12-java17-python3-ubuntu` | multi-arch | Runs spark-submit in client mode |
 | Producer | Custom (`docker/producer/Dockerfile`) | multi-arch | Python 3.11-slim + kafka-python + faker |
-| Airflow | `apache/airflow:2.3.0` | multi-arch | Vanilla image, no Spark/dbt |
+| Airflow | `apache/airflow:3.2.0` | multi-arch | Vanilla image with Python 3.12, no Spark/dbt |
 | PostgreSQL | `postgres:13` | multi-arch | — |
 | Trino | `trinodb/trino:380` | multi-arch | — |
 | LocalStack | `localstack/localstack:3.8` | multi-arch | — |
@@ -69,16 +69,12 @@ When building a custom Airflow image for Architecture B (Airflow-orchestrated), 
 
 | Component | Version | Reason |
 | --- | --- | --- |
-| Airflow base image | `apache/airflow:2.3.0-python3.8` | Python 3.8 required for dbt-spark 1.4.0 (default image uses Python 3.7) |
+| Airflow base image | `apache/airflow:3.2.0` | Already includes Python 3.12. For dbt-spark, add `pip install dbt-spark[PyHive]`. |
 | Java in Airflow | 17 | Must match Spark cluster to avoid serialization issues |
 | Spark binaries | 3.5.3 | Needed for `spark-submit` inside the Airflow container |
 | dbt-spark | 1.4.0 | Requires Python 3.8+, PyHive extras for Thrift connection |
 
 See the reference Dockerfile and requirements in [roadmap.md](roadmap.md) under "Custom Airflow Image".
-
-### Airflow 2.4+ Upgrade
-
-Upgrading to Airflow 2.4+ enables `@continuous` scheduling for streaming job orchestration. See [airflow-migration-plan.md](airflow-migration-plan.md) for the migration plan.
 
 ## References
 

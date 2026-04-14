@@ -45,7 +45,6 @@ Items not covered by the current implementation, organized by category.
 | Docker Compose profiles         | Infrastructure | Not implemented                                                 | Medium |
 | Custom Airflow image            | Infrastructure | Requires Java 17 + Spark in image                               | High   |
 | Airflow-orchestrated Spark      | Infrastructure | Requires custom Airflow image                                   | High   |
-| Airflow 2.4+ migration          | Infrastructure | Depends on custom Airflow image                                 | Medium |
 
 
 ### Redshift Sync
@@ -164,20 +163,21 @@ spark-thrift:
 ### Custom Airflow Image
 
 **Category:** Infrastructure
-**Current state:** Using vanilla `apache/airflow:2.3.0`. DAGs use PythonOperator workaround because Airflow cannot run spark-submit or kafka-python.
+**Current state:** Using vanilla `apache/airflow:3.2.0`. DAGs use PythonOperator workaround because Airflow cannot run spark-submit or kafka-python.
 **What's needed:**
 
-- Build custom Dockerfile based on `apache/airflow:2.3.0-python3.8` (Python 3.8 required for dbt-spark)
+- Build custom Dockerfile based on `apache/airflow:3.2.0`
 - Install Java 17 (must match Spark cluster), wget, netcat
 - Download and install Spark binaries for `spark-submit`
 - Install Python packages: kafka-python, faker, dbt-spark, python-dotenv
+- Install Airflow providers: `apache-airflow-providers-apache-spark`
 **Depends on:** This is a prerequisite for Airflow-orchestrated Spark and dbt
 
 <details>
 <summary>Reference Dockerfile (docker/airflow/Dockerfile)</summary>
 
 ```dockerfile
-FROM apache/airflow:2.3.0-python3.8
+FROM apache/airflow:3.2.0
 
 USER root
 
@@ -205,23 +205,9 @@ ENV PATH="${SPARK_HOME}/bin:${PATH}"
 
 USER airflow
 
-COPY requirements-airflow.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
-```
-
-</details>
-
-<details>
-<summary>Reference requirements (docker/airflow/requirements-airflow.txt)</summary>
-
-```
-kafka-python
-confluent-kafka
-faker
-dbt-core==1.4.0
-dbt-spark[PyHive]==1.4.0
-apache-airflow-providers-apache-spark
-python-dotenv
+RUN pip install --no-cache-dir \
+    kafka-python faker dbt-spark[PyHive] python-dotenv \
+    apache-airflow-providers-apache-spark
 ```
 
 </details>
@@ -264,17 +250,9 @@ check_job = ShortCircuitOperator(
 
 </details>
 
-### Airflow 2.4+ Migration
+### ~~Airflow 2.4+ Migration~~ (Done)
 
-**Category:** Infrastructure
-**Current state:** Running Airflow 2.3.0. Streaming job orchestration uses a separate docker-compose service.
-**What's needed:**
-
-- Upgrade to Airflow 2.4.3 for `@continuous` scheduling support
-- Run `airflow db migrate` on upgrade
-- Replace streaming job docker-compose service with Airflow-orchestrated `@continuous` DAG
-- Full spec in [airflow-migration-plan.md](airflow-migration-plan.md)
-**Depends on:** Custom Airflow image, Spark Thrift Server (for dbt DAGs)
+Airflow has been upgraded directly from 2.3.0 to **3.2.0**, which includes `@continuous` scheduling, data-aware workflows (Assets), and the modern FastAPI-based UI. No custom image needed for this — the vanilla `apache/airflow:3.2.0` image is used with `SimpleAuthManager` (no login required).
 
 ---
 

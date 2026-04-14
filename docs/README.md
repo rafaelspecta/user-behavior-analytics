@@ -17,7 +17,6 @@ This folder contains all project documentation for the User Behavior Analytics p
 | Document | What It Answers |
 | --- | --- |
 | [roadmap.md](roadmap.md) | "What's not implemented yet? What's the long-term vision?" |
-| [airflow-migration-plan.md](airflow-migration-plan.md) | "How do we upgrade Airflow to 2.4+ for `@continuous` scheduling?" |
 
 ## Quick Start
 

@@ -19,6 +19,8 @@ graph TD
     G --> H[BI Tools]
 ```
 
+
+
 ### Scenario 2: Delta Lake + Trino + dbt
 
 ```mermaid
@@ -33,6 +35,8 @@ graph TD
     H --> I[BI Tools]
 ```
 
+
+
 ### Scenario 3: Hudi instead of Delta Lake
 
 ```mermaid
@@ -44,6 +48,8 @@ graph TD
     E --> F["Hudi (Gold)"]
     F --> G[...]
 ```
+
+
 
 > Scenarios 2 and 3 are not yet implemented. See the [roadmap](docs/roadmap.md) for details and implementation priority.
 
@@ -77,6 +83,8 @@ graph LR
     AF -.->|monitors| S
 ```
 
+
+
 ## Medallion Architecture
 
 ```mermaid
@@ -97,29 +105,35 @@ graph LR
     Silver --> PP
 ```
 
+
+
 ## Tech Stack
 
-| Component           | Technology                          | Purpose                              |
-| ------------------- | ----------------------------------- | ------------------------------------ |
-| Event Producer      | Python, Faker, kafka-python         | Synthetic clickstream generation     |
-| Message Broker      | Apache Kafka + Zookeeper            | Real-time event ingestion            |
-| Stream Processing   | Apache Spark Structured Streaming   | Kafka-to-Delta Lake streaming        |
-| Storage Format      | Delta Lake 3.2                      | ACID transactions, time travel       |
-| Object Storage      | LocalStack S3                       | Local AWS S3 emulation               |
-| Batch Processing    | Apache Spark                        | Silver-to-Gold aggregation           |
-| Orchestration       | Apache Airflow 2.3                  | Pipeline and health monitoring DAGs  |
-| SQL Query Engine    | Trino 380                           | Interactive SQL (deferred)           |
-| Kafka Web UI        | Kafdrop                             | Topic inspection and monitoring      |
-| Database            | PostgreSQL 13                       | Airflow metadata                     |
+
+| Component         | Technology                        | Purpose                             |
+| ----------------- | --------------------------------- | ----------------------------------- |
+| Event Producer    | Python, Faker, kafka-python       | Synthetic clickstream generation    |
+| Message Broker    | Apache Kafka + Zookeeper          | Real-time event ingestion           |
+| Stream Processing | Apache Spark Structured Streaming | Kafka-to-Delta Lake streaming       |
+| Storage Format    | Delta Lake 3.2                    | ACID transactions, time travel      |
+| Object Storage    | LocalStack S3                     | Local AWS S3 emulation              |
+| Batch Processing  | Apache Spark                      | Silver-to-Gold aggregation          |
+| Orchestration     | Apache Airflow 3.2                | Pipeline and health monitoring DAGs |
+| SQL Query Engine  | Trino 380                         | Interactive SQL (deferred)          |
+| Kafka Web UI      | Kafdrop                           | Topic inspection and monitoring     |
+| Database          | PostgreSQL 13                     | Airflow metadata                    |
+
 
 ## Web UIs
 
-| Service       | URL                         | Credentials       |
-| ------------- | --------------------------- | ------------------ |
-| Spark Master  | http://localhost:8080        | —                  |
-| Airflow       | http://localhost:8081        | admin / admin      |
-| Trino         | http://localhost:8082        | —                  |
-| Kafdrop       | http://localhost:9033        | —                  |
+
+| Service      | URL                                            | Credentials   |
+| ------------ | ---------------------------------------------- | ------------- |
+| Spark Master | [http://localhost:8080](http://localhost:8080) | —             |
+| Airflow      | [http://localhost:8081](http://localhost:8081) | No login required |
+| Trino        | [http://localhost:8082](http://localhost:8082) | —             |
+| Kafdrop      | [http://localhost:9033](http://localhost:9033) | —             |
+
 
 ## Project Structure
 
@@ -192,9 +206,9 @@ docker exec user-behavior-analytics-localstack-1 awslocal s3 ls s3://user-behavi
 
 ### 3. Explore the Web UIs
 
-- **Kafdrop** (http://localhost:9033): View the `clickstream-events` topic, browse messages, check partition offsets
-- **Spark Master** (http://localhost:8080): See the `ClickstreamStreaming` application running, worker status, and executor details
-- **Airflow** (http://localhost:8081): Log in with `admin`/`admin`, trigger the `clickstream_pipeline` DAG manually, and check the `pipeline_health_monitor` DAG
+- **Kafdrop** ([http://localhost:9033](http://localhost:9033)): View the `clickstream-events` topic, browse messages, check partition offsets
+- **Spark Master** ([http://localhost:8080](http://localhost:8080)): See the `ClickstreamStreaming` application running, worker status, and executor details
+- **Airflow** ([http://localhost:8081](http://localhost:8081)): No login required — trigger the `clickstream_pipeline` DAG manually, and check the `pipeline_health_monitor` DAG
 
 ### 4. Run batch aggregation (Silver to Gold)
 
@@ -231,6 +245,8 @@ graph LR
     C --> D[create_report]
 ```
 
+
+
 A simplified demo pipeline using PythonOperator tasks. Generates 200 synthetic events, aggregates by type/device, runs quality checks, and produces a summary report. Trigger manually from the Airflow UI to demonstrate DAG execution.
 
 ### pipeline_health_monitor (every 5 min)
@@ -240,6 +256,8 @@ graph LR
     A[check_kafka] --> B[check_streaming_job]
     B --> C[check_s3_data]
 ```
+
+
 
 Monitors the running infrastructure: verifies Kafka topics exist (via Kafdrop API), checks for active Spark streaming applications (via Spark Master REST API), and confirms Delta Lake data is present in S3.
 

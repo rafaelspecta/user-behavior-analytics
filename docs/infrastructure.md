@@ -160,12 +160,13 @@ Creates two topics:
 
 | Property | Value |
 | --- | --- |
-| Image | `apache/airflow:2.3.0` (vanilla, no custom build) |
+| Image | `apache/airflow:3.2.0` (vanilla, no custom build) |
 | Port | 8081 (host) → 8080 (container) |
 | Purpose | Pipeline orchestration and monitoring |
 | URL | http://localhost:8081 |
-| Credentials | admin / admin |
+| Authentication | None required (`SimpleAuthManager` with all-admins mode) |
 | Executor | LocalExecutor (backed by PostgreSQL) |
+| Health endpoint | `http://localhost:8081/api/v2/monitor/health` |
 | Depends on | PostgreSQL (healthy) |
 
 **Volumes:**
@@ -252,7 +253,7 @@ All services are on the default Docker Compose bridge network (`user-behavior-an
 | Service | URL | Purpose |
 | --- | --- | --- |
 | Spark Master | http://localhost:8080 | Cluster status, running/completed applications, worker details |
-| Airflow | http://localhost:8081 | DAG management, task logs, trigger runs (admin/admin) |
+| Airflow | http://localhost:8081 | DAG management, task logs, trigger runs (no login needed) |
 | Trino | http://localhost:8082 | SQL query interface (no catalog configured yet) |
 | Kafdrop | http://localhost:9033 | Kafka topic inspection, message browsing, partition details |
 | LocalStack | http://localhost:4566 | AWS API endpoint (use with `aws --endpoint-url=http://localhost:4566 s3 ls`) |
