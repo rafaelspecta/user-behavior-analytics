@@ -1,204 +1,266 @@
 # Scalable Clickstream Data Pipeline for User Behavior Analytics
 
-A production-grade data pipeline for processing and analyzing user clickstream data at scale.
+A Dockerized data pipeline for processing and analyzing user clickstream data at scale, designed as a hands-on learning environment for Modern Data Architecture patterns.
 
-## 🏗️ Architecture
+## Architecture
 
-### Delta Lake + Spark
+This project supports multiple architecture scenarios. **Scenario 1** is fully implemented; the others are on the [roadmap](docs/roadmap.md).
 
-```mermaid
-graph TD
-    A[Kafka Producer] --> B[Kafka]
-    B --> C[Spark Streaming]
-    C --> D[Delta Lake]
-    D --> E[Spark]
-    E --> F[Redshift]
-    F --> G[BI Tools]
-```
-
-
-
-### Delta Lake + Trino + dbt
+### Scenario 1: Delta Lake + Spark (current)
 
 ```mermaid
 graph TD
     A[Kafka Producer] --> B[Kafka]
     B --> C[Spark Streaming]
-    C --> D[Delta Lake]
-    D --> E[Trino]
-    E --> F[dbt]
-    F --> G[Redshift]
+    C --> D["Delta Lake (Silver)"]
+    D --> E["Spark Batch"]
+    E --> F["Delta Lake (Gold)"]
+    F --> G["Redshift (deferred)"]
     G --> H[BI Tools]
 ```
 
-
-
-### Hudi instead of Delta Lake
+### Scenario 2: Delta Lake + Trino + dbt
 
 ```mermaid
 graph TD
     A[Kafka Producer] --> B[Kafka]
     B --> C[Spark Streaming]
-    C --> D[Hudi]
-    D --> E[...]
+    C --> D["Delta Lake (Silver)"]
+    D --> E[Trino]
+    E --> F[dbt]
+    F --> G["Delta Lake (Gold)"]
+    G --> H["Redshift (deferred)"]
+    H --> I[BI Tools]
 ```
 
+### Scenario 3: Hudi instead of Delta Lake
 
+```mermaid
+graph TD
+    A[Kafka Producer] --> B[Kafka]
+    B --> C[Spark Streaming]
+    C --> D["Hudi (Silver)"]
+    D --> E[Spark Batch]
+    E --> F["Hudi (Gold)"]
+    F --> G[...]
+```
 
-## 🛠️ Tech Stack
+> Scenarios 2 and 3 are not yet implemented. See the [roadmap](docs/roadmap.md) for details and implementation priority.
 
-- **Apache Kafka**: Real-time event ingestion
-- **Apache Spark Structured Streaming**: Stream processing
-- **Delta Lake & Apache Hudi**: Dual-format data lake storage
-- **Hive Metastore + Trino**: SQL-based query engine and catalog
-- **Airflow**: Pipeline orchestration
-- **dbt**: Data quality validation and schema checks
-- **Redshift**: Downstream BI integration
-- **Terraform**: AWS infrastructure provisioning
+## End-to-End Data Flow
 
-## 📁 Project Structure
+```mermaid
+graph LR
+    subgraph "Event Generation"
+        P[Producer<br>Python + Faker]
+    end
+    subgraph "Message Broker"
+        K[Kafka]
+    end
+    subgraph "Stream Processing"
+        SS[Spark Structured<br>Streaming]
+    end
+    subgraph "Data Lake (LocalStack S3)"
+        S["Silver Layer<br>(Delta Lake)"]
+        G["Gold Layer<br>(Delta Lake)"]
+    end
+    subgraph "Orchestration"
+        AF[Airflow]
+    end
+
+    P -->|clickstream-events| K
+    K --> SS
+    SS -->|append| S
+    S -->|batch aggregate| G
+    AF -.->|monitors| K
+    AF -.->|monitors| SS
+    AF -.->|monitors| S
+```
+
+## Medallion Architecture
+
+```mermaid
+graph LR
+    subgraph Bronze
+        K[Kafka Topic<br>clickstream-events]
+    end
+    subgraph Silver
+        DL["Delta Lake<br>s3://...-silver/clickstream/delta/<br>Parsed JSON, timestamped"]
+    end
+    subgraph Gold
+        DA["Daily User Activity<br>s3://...-gold/daily_user_activity/"]
+        PP["Product Performance<br>s3://...-gold/product_performance/"]
+    end
+
+    K --> Silver
+    Silver --> DA
+    Silver --> PP
+```
+
+## Tech Stack
+
+| Component           | Technology                          | Purpose                              |
+| ------------------- | ----------------------------------- | ------------------------------------ |
+| Event Producer      | Python, Faker, kafka-python         | Synthetic clickstream generation     |
+| Message Broker      | Apache Kafka + Zookeeper            | Real-time event ingestion            |
+| Stream Processing   | Apache Spark Structured Streaming   | Kafka-to-Delta Lake streaming        |
+| Storage Format      | Delta Lake 3.2                      | ACID transactions, time travel       |
+| Object Storage      | LocalStack S3                       | Local AWS S3 emulation               |
+| Batch Processing    | Apache Spark                        | Silver-to-Gold aggregation           |
+| Orchestration       | Apache Airflow 2.3                  | Pipeline and health monitoring DAGs  |
+| SQL Query Engine    | Trino 380                           | Interactive SQL (deferred)           |
+| Kafka Web UI        | Kafdrop                             | Topic inspection and monitoring      |
+| Database            | PostgreSQL 13                       | Airflow metadata                     |
+
+## Web UIs
+
+| Service       | URL                         | Credentials       |
+| ------------- | --------------------------- | ------------------ |
+| Spark Master  | http://localhost:8080        | —                  |
+| Airflow       | http://localhost:8081        | admin / admin      |
+| Trino         | http://localhost:8082        | —                  |
+| Kafdrop       | http://localhost:9033        | —                  |
+
+## Project Structure
 
 ```
 .
-├── terraform/                 # Infrastructure as Code
-│   ├── modules/              # Reusable Terraform modules
-│   └── environments/         # Environment-specific configurations
-├── src/                      # Source code
-│   ├── producer/            # Kafka producer
-│   ├── streaming/           # Spark streaming jobs
-│   └── batch/              # Batch processing jobs
-├── dbt/                      # Data transformation
-│   ├── models/             # dbt models
-│   ├── tests/              # Data quality tests
-│   └── analyses/           # Ad-hoc analyses
-├── airflow/                  # Pipeline orchestration
-│   └── dags/               # Airflow DAGs
-└── config/                  # Configuration files
+├── dags/                         # Airflow DAGs
+│   ├── pipeline_dag.py           #   Clickstream pipeline (demo)
+│   └── pipeline_health_dag.py    #   Infrastructure health monitor
+├── src/                          # Application source code
+│   ├── producer/                 #   Kafka event producer
+│   ├── streaming/                #   Spark Structured Streaming job
+│   └── batch/                    #   Spark batch aggregation job
+├── docker/                       # Custom Dockerfiles
+│   └── producer/                 #   Producer container image
+├── scripts/                      # Initialization scripts
+│   ├── kafka-init/               #   Kafka topic creation
+│   └── localstack-init/          #   S3 bucket creation
+├── config/                       # Service configurations
+│   └── trino/                    #   Trino server config
+├── dbt/                          # Data transformation (deferred)
+├── docs/                         # Documentation
+│   └── roadmap.md                #   Deferred items and future vision
+├── docker-compose.yml            # All services definition
+└── env.sample                    # Environment variable reference
 ```
 
-## 🚀 Getting Started
+## Prerequisites
 
-### Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2
+- 8 GB+ RAM allocated to Docker (services are resource-intensive)
+- **Note for Apple Silicon Macs:** Confluent images (Kafka, Zookeeper) run under amd64 emulation via QEMU. Initial startup may take 2-3 minutes.
 
-- AWS Account with appropriate permissions
-- Terraform v1.0+
-- Python 3.8+
-- Apache Spark 3.3+
-- Apache Kafka 2.8+
-- dbt 1.0+
-- Airflow 2.0+
+## Running the Pipeline
 
-### Infrastructure Setup
-
-1. Initialize Terraform:
+### 1. Start all services
 
 ```bash
-cd terraform/environments/dev
-terraform init
+docker compose up -d
 ```
 
-1. Apply infrastructure:
+This starts 11 containers: Zookeeper, Kafka, kafka-init, Kafdrop, Spark Master, Spark Worker, streaming-job, producer, Airflow, PostgreSQL, Trino, and LocalStack.
+
+Wait for all healthchecks to pass (1-3 minutes depending on hardware):
 
 ```bash
-terraform apply
+docker compose ps
 ```
 
-### Running the Pipeline
+All services should show `Up` (with `healthy` where applicable).
 
-1. Start Kafka:
+### 2. Verify data is flowing
+
+Check that the producer is generating events:
 
 ```bash
-./scripts/start_kafka.sh
+docker compose logs producer --tail 5
 ```
 
-1. Start the producer:
+Check that the streaming job is processing micro-batches:
 
 ```bash
-python src/producer/producer.py
+docker compose logs streaming-job --tail 10
 ```
 
-1. Start Spark streaming:
+Check that Delta Lake data has landed in S3:
 
 ```bash
-spark-submit src/streaming/streaming_job.py
+docker exec user-behavior-analytics-localstack-1 awslocal s3 ls s3://user-behavior-analytics-silver/clickstream/delta/ --recursive
 ```
 
-1. Run batch processing:
+### 3. Explore the Web UIs
+
+- **Kafdrop** (http://localhost:9033): View the `clickstream-events` topic, browse messages, check partition offsets
+- **Spark Master** (http://localhost:8080): See the `ClickstreamStreaming` application running, worker status, and executor details
+- **Airflow** (http://localhost:8081): Log in with `admin`/`admin`, trigger the `clickstream_pipeline` DAG manually, and check the `pipeline_health_monitor` DAG
+
+### 4. Run batch aggregation (Silver to Gold)
 
 ```bash
-spark-submit src/batch/batch_job.py
+docker exec user-behavior-analytics-spark-master-1 \
+  /opt/spark/bin/spark-submit \
+    --master spark://spark-master:7077 \
+    --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 \
+    --packages io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
+    /opt/spark/app/src/batch/batch_job.py
 ```
 
-1. Run dbt tests:
+Verify Gold layer data:
 
 ```bash
-cd dbt
-dbt test
+docker exec user-behavior-analytics-localstack-1 awslocal s3 ls s3://user-behavior-analytics-gold/ --recursive
 ```
 
-## 📊 Data Flow
+### 5. Stop everything
 
-1. **Ingestion**: Kafka producer generates synthetic clickstream events
-2. **Processing**: Spark streaming job processes events in real-time
-3. **Storage**: Data is stored in both Delta Lake and Hudi formats
-4. **Transformation**: dbt models transform and validate the data
-5. **Analytics**: Trino provides SQL access for analytics
-6. **BI**: Aggregated data is synced to Redshift for BI tools
+```bash
+docker compose down       # Stop and remove containers (keep volumes)
+docker compose down -v    # Stop, remove containers AND volumes (clean slate)
+```
 
-## 🔍 Data Quality
+## Airflow DAGs
 
-- Schema validation
-- Data completeness checks
-- Duplicate detection
-- Anomaly detection
-- Freshness monitoring
+### clickstream_pipeline (manual trigger)
 
-## 📈 Performance Tuning
+```mermaid
+graph LR
+    A[generate_sample_events] --> B[process_events]
+    B --> C[validate_data]
+    C --> D[create_report]
+```
 
-### Kafka
+A simplified demo pipeline using PythonOperator tasks. Generates 200 synthetic events, aggregates by type/device, runs quality checks, and produces a summary report. Trigger manually from the Airflow UI to demonstrate DAG execution.
 
-- Optimize partition count based on throughput
-- Configure appropriate retention policies
-- Monitor consumer lag
+### pipeline_health_monitor (every 5 min)
 
-### Spark
+```mermaid
+graph LR
+    A[check_kafka] --> B[check_streaming_job]
+    B --> C[check_s3_data]
+```
 
-- Tune executor memory and cores
-- Optimize shuffle partitions
-- Configure appropriate batch intervals
+Monitors the running infrastructure: verifies Kafka topics exist (via Kafdrop API), checks for active Spark streaming applications (via Spark Master REST API), and confirms Delta Lake data is present in S3.
 
-### Delta Lake
+## Data Flow Summary
 
-- Regular compaction
-- Z-ordering for query performance
-- Vacuum old files
+1. **Ingestion**: Python producer generates synthetic clickstream events (page views, product views, cart additions, checkouts, purchases)
+2. **Streaming**: Spark Structured Streaming consumes from Kafka, parses JSON, adds a processing timestamp, and writes to Delta Lake Silver layer on S3
+3. **Batch Aggregation**: On-demand Spark batch job reads Silver, creates daily user activity and product performance aggregations, writes to Delta Lake Gold layer
+4. **Monitoring**: Airflow health DAG continuously checks Kafka, Spark, and S3 status; pipeline DAG demonstrates orchestrated batch processing
 
-### Hudi
+## Deferred Features
 
-- Configure appropriate compaction strategy
-- Optimize upsert performance
-- Manage file sizes
+See [docs/roadmap.md](docs/roadmap.md) for the full roadmap. Key items not yet implemented:
 
-## 🛠️ Monitoring
+- Redshift sync (Gold -> Redshift via JDBC)
+- Trino catalog configuration and SQL analytics
+- dbt data quality and transformation models
+- Hudi storage format (Scenario 3)
+- Docker Compose profiles for selective scenario startup
+- Custom Airflow image with Spark and dbt
 
-- Airflow task status and logs
-- Spark UI for job monitoring
-- Kafka metrics
-- dbt test results
-- Data quality dashboards
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📞 Support
-
-For support, please open an issue in the GitHub repository or contact the maintainers. 
