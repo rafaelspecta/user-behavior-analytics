@@ -21,7 +21,9 @@ Rather than learning about data architectures in theory, students will be able t
 Producer -> Kafka -> Spark Streaming -> Delta Lake Silver (S3) -> Spark Batch -> Delta Lake Gold (S3)
 ```
 
-The pipeline runs end-to-end locally with Docker Compose. Events are produced, streamed, stored in Delta Lake, and aggregated from Silver to Gold layers. All steps are visible via web UIs (Kafdrop, Spark Master UI, Airflow).
+The pipeline runs end-to-end locally with Docker Compose using **Architecture A (Streaming-First)**: the streaming job runs as a continuous Docker container, independent of Airflow. Airflow provides a demo pipeline DAG and a health-monitoring DAG, but does not orchestrate the real streaming pipeline.
+
+See [architecture-guide.md](architecture-guide.md) for all orchestration patterns (streaming-first, Airflow-orchestrated, hybrid, event-driven) and how to configure them.
 
 ---
 
@@ -85,10 +87,43 @@ Items not covered by the current implementation, organized by category.
 **Current state:** Not deployed. Required by dbt-spark for thrift connection method.
 **What's needed:**
 
-- Add `spark-thrift` service to `docker-compose.yml` (see `.aidocs/containerization-plan.md` section 2.3 for full spec)
+- Add `spark-thrift` service to `docker-compose.yml`
 - Configure with Delta Lake extensions and S3A access
 - Add healthcheck on port 10000
 - Expose port 10000 for dbt and external tools
+
+<details>
+<summary>Reference docker-compose spec</summary>
+
+```yaml
+spark-thrift:
+  image: spark:3.5.3-scala2.12-java17-python3-ubuntu
+  command: >
+    /opt/spark/sbin/start-thriftserver.sh
+    --master spark://spark-master:7077
+    --hiveconf hive.server2.thrift.port=10000
+    --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+    --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+    --conf spark.hadoop.fs.s3a.endpoint=http://localstack:4566
+    --conf spark.hadoop.fs.s3a.access.key=test
+    --conf spark.hadoop.fs.s3a.secret.key=test
+    --conf spark.hadoop.fs.s3a.path.style.access=true
+    --packages io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262
+  ports:
+    - "10000:10000"
+  environment:
+    - SPARK_NO_DAEMONIZE=true
+  depends_on:
+    - spark-master
+  healthcheck:
+    test: ["CMD-SHELL", "nc -z localhost 10000"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+    start_period: 60s
+```
+
+</details>
 
 ### dbt Integration
 
@@ -136,8 +171,98 @@ Items not covered by the current implementation, organized by category.
 - Install Java 17 (must match Spark cluster), wget, netcat
 - Download and install Spark binaries for `spark-submit`
 - Install Python packages: kafka-python, faker, dbt-spark, python-dotenv
-- Full spec in `.aidocs/containerization-plan.md` sections 3.1 and 3.2
 **Depends on:** This is a prerequisite for Airflow-orchestrated Spark and dbt
+
+<details>
+<summary>Reference Dockerfile (docker/airflow/Dockerfile)</summary>
+
+```dockerfile
+FROM apache/airflow:2.3.0-python3.8
+
+USER root
+
+# Java 17 must match Spark cluster (java17-ubuntu image)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       openjdk-17-jdk-headless \
+       wget \
+       netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Spark binaries — version must match cluster
+ENV SPARK_VERSION=3.5.3
+ENV HADOOP_VERSION=3
+RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz \
+    && tar -xzf spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -C /opt \
+    && mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} /opt/spark \
+    && rm spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
+
+ENV SPARK_HOME=/opt/spark
+ENV PATH="${SPARK_HOME}/bin:${PATH}"
+
+USER airflow
+
+COPY requirements-airflow.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
+```
+
+</details>
+
+<details>
+<summary>Reference requirements (docker/airflow/requirements-airflow.txt)</summary>
+
+```
+kafka-python
+confluent-kafka
+faker
+dbt-core==1.4.0
+dbt-spark[PyHive]==1.4.0
+apache-airflow-providers-apache-spark
+python-dotenv
+```
+
+</details>
+
+### Airflow-Orchestrated Spark (Architecture B DAGs)
+
+**Category:** Infrastructure
+**Current state:** Streaming runs as a Docker container. Airflow only provides a demo DAG and health monitoring.
+**What's needed:**
+
+- Build the custom Airflow image (see above)
+- Create `dags/clickstream_streaming_dag.py` — checks Spark Master API for running streaming app, submits via `spark-submit --deploy-mode cluster --supervise` if not running, runs every minute with `max_active_runs=1`
+- Create `dags/clickstream_processing_dag.py` — daily batch DAG that runs producer (60s), spark-submit batch job, and dbt tests in sequence
+- Configure Airflow Spark connection: `AIRFLOW_CONN_SPARK_DEFAULT=spark://spark-master:7077`
+**Depends on:** Custom Airflow image, Spark Thrift Server (for dbt tasks)
+
+<details>
+<summary>Key pattern: streaming DAG with ShortCircuitOperator</summary>
+
+```python
+from airflow.operators.python import ShortCircuitOperator
+
+def is_streaming_job_needed():
+    """Check Spark Master REST API for running streaming app."""
+    result = subprocess.run(
+        ["curl", "-s", "http://spark-master:8080/json/"],
+        capture_output=True, text=True, timeout=10
+    )
+    data = json.loads(result.stdout)
+    for app in data.get("activeapps", []):
+        if "streaming" in app.get("name", "").lower():
+            return False  # already running
+    return True  # needs submission
+
+check_job = ShortCircuitOperator(
+    task_id='check_if_submission_needed',
+    python_callable=is_streaming_job_needed,
+)
+```
+
+</details>
 
 ### Airflow 2.4+ Migration
 
@@ -148,7 +273,7 @@ Items not covered by the current implementation, organized by category.
 - Upgrade to Airflow 2.4.3 for `@continuous` scheduling support
 - Run `airflow db migrate` on upgrade
 - Replace streaming job docker-compose service with Airflow-orchestrated `@continuous` DAG
-- Full spec in `.aidocs/airflow-migration-plan.md`
+- Full spec in [airflow-migration-plan.md](airflow-migration-plan.md)
 **Depends on:** Custom Airflow image, Spark Thrift Server (for dbt DAGs)
 
 ---
@@ -233,6 +358,17 @@ graph TD
 | Hudi batch aggregation   | Not started | Adapt batch job to read/write Hudi tables                      |
 | Hudi timeline management | Not started | Configure compaction strategy, explore timeline API            |
 
+
+### Orchestration Architectures
+
+In addition to storage format scenarios, the project supports different **orchestration patterns** (see [architecture-guide.md](architecture-guide.md) for full details):
+
+| Architecture | Description | Status |
+| --- | --- | --- |
+| **A: Streaming-First** | Streaming runs as Docker containers, Airflow monitors only | **Working** |
+| **B: Airflow-Orchestrated** | Airflow submits and manages all jobs via spark-submit | Deferred (needs custom Airflow image) |
+| **C: Hybrid** | Streaming runs independently, Airflow orchestrates batch layer | Partially implemented |
+| **D: Event-Driven** | Airflow KafkaSensor triggers processing on data arrival | Deferred (needs kafka provider) |
 
 ### Future Scenarios (Ideas)
 
