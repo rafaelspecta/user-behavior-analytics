@@ -9,7 +9,7 @@ from faker import Faker
 fake = Faker()
 
 # Kafka configuration
-KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092' #TODO: Read from .env (different value when running from airflow)
 TOPIC_NAME = 'clickstream-events'
 
 def generate_clickstream_event():

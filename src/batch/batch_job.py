@@ -1,16 +1,35 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, date_trunc, count, sum, avg, max
+from pyspark.sql.functions import col, date_trunc, count, sum, avg, max, countDistinct, when
 from datetime import datetime, timedelta
+
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get vars
+redshift_url = os.getenv("REDSHIFT_URL")
+redshift_user = os.getenv("REDSHIFT_USER")
+redshift_pass = os.getenv("REDSHIFT_PASS")
+redshift_driver = os.getenv("REDSHIFT_DRIVER")
 
 def create_spark_session():
     """Create and configure Spark session."""
+    # return SparkSession.builder \
+    #     .appName("ClickstreamBatch") \
+    #     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+    #     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+    #     .config("spark.jars.packages", 
+    #             "io.delta:delta-core_2.12:2.2.0,"
+    #             "org.apache.hudi:hudi-spark3.3-bundle_2.12:0.12.2") \
+    #     .getOrCreate()
     return SparkSession.builder \
         .appName("ClickstreamBatch") \
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-        .config("spark.jars.packages", 
-                "io.delta:delta-core_2.12:2.2.0,"
-                "org.apache.hudi:hudi-spark3.3-bundle_2.12:0.12.2") \
+        .config("spark.jars.packages",
+                "io.delta:delta-spark_2.12:3.2.0") \
         .getOrCreate()
 
 def compact_delta_tables(spark):
@@ -78,21 +97,21 @@ def sync_to_redshift(spark):
     # Write to Redshift
     daily_activity.write \
         .format("jdbc") \
-        .option("url", "jdbc:redshift://your-redshift-endpoint:5439/analytics") \
+        .option("url", redshift_url) \
         .option("dbtable", "daily_user_activity") \
-        .option("user", "your_username") \
-        .option("password", "your_password") \
-        .option("driver", "com.amazon.redshift.jdbc42.Driver") \
+        .option("user", redshift_user) \
+        .option("password", redshift_pass) \
+        .option("driver", redshift_driver) \
         .mode("overwrite") \
         .save()
     
     product_performance.write \
         .format("jdbc") \
-        .option("url", "jdbc:redshift://your-redshift-endpoint:5439/analytics") \
+        .option("url", redshift_url) \
         .option("dbtable", "product_performance") \
-        .option("user", "your_username") \
-        .option("password", "your_password") \
-        .option("driver", "com.amazon.redshift.jdbc42.Driver") \
+        .option("user", redshift_user) \
+        .option("password", redshift_pass) \
+        .option("driver", redshift_driver) \
         .mode("overwrite") \
         .save()
 

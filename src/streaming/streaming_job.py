@@ -26,14 +26,22 @@ CLICKSTREAM_SCHEMA = StructType([
 
 def create_spark_session():
     """Create and configure Spark session."""
+    # return SparkSession.builder \
+    #     .appName("ClickstreamStreaming") \
+    #     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+    #     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+    #     .config("spark.jars.packages", 
+    #             "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,"
+    #             "io.delta:delta-core_2.12:2.2.0,"
+    #             "org.apache.hudi:hudi-spark3.3-bundle_2.12:0.12.2") \
+    #     .getOrCreate()
     return SparkSession.builder \
         .appName("ClickstreamStreaming") \
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-        .config("spark.jars.packages", 
-                "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,"
-                "io.delta:delta-core_2.12:2.2.0,"
-                "org.apache.hudi:hudi-spark3.3-bundle_2.12:0.12.2") \
+        .config("spark.jars.packages",
+                "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,"
+                "io.delta:delta-spark_2.12:3.2.0") \
         .getOrCreate()
 
 def process_stream(spark):
@@ -63,36 +71,38 @@ def process_stream(spark):
         .start()
 
     # Write to Hudi (silver layer)
-    hudi_query = parsed_df.writeStream \
-        .format("hudi") \
-        .outputMode("append") \
-        .option("hoodie.table.name", "clickstream_events") \
-        .option("hoodie.datasource.write.recordkey.field", "event_id") \
-        .option("hoodie.datasource.write.partitionpath.field", "event_type") \
-        .option("hoodie.datasource.write.precombine.field", "timestamp") \
-        .option("hoodie.upsert.shuffle.parallelism", 200) \
-        .option("hoodie.insert.shuffle.parallelism", 200) \
-        .option("checkpointLocation", "s3a://user-behavior-analytics-silver/checkpoints/hudi") \
-        .option("path", "s3a://user-behavior-analytics-silver/clickstream/hudi") \
-        .trigger(processingTime="1 minute") \
-        .start()
+    # hudi_query = parsed_df.writeStream \
+    #     .format("hudi") \
+    #     .outputMode("append") \
+    #     .option("hoodie.table.name", "clickstream_events") \
+    #     .option("hoodie.datasource.write.recordkey.field", "event_id") \
+    #     .option("hoodie.datasource.write.partitionpath.field", "event_type") \
+    #     .option("hoodie.datasource.write.precombine.field", "timestamp") \
+    #     .option("hoodie.upsert.shuffle.parallelism", 200) \
+    #     .option("hoodie.insert.shuffle.parallelism", 200) \
+    #     .option("checkpointLocation", "s3a://user-behavior-analytics-silver/checkpoints/hudi") \
+    #     .option("path", "s3a://user-behavior-analytics-silver/clickstream/hudi") \
+    #     .trigger(processingTime="1 minute") \
+    #     .start()
 
-    return delta_query, hudi_query
+    # return delta_query, hudi_query
+    return delta_query
 
 def main():
     spark = create_spark_session()
     
     try:
-        delta_query, hudi_query = process_stream(spark)
+        # delta_query, hudi_query = process_stream(spark)
+        delta_query = process_stream(spark)
         
         # Wait for the streaming queries to terminate
         delta_query.awaitTermination()
-        hudi_query.awaitTermination()
+        # hudi_query.awaitTermination()
         
     except KeyboardInterrupt:
         print("\nStopping streaming queries...")
         delta_query.stop()
-        hudi_query.stop()
+        # hudi_query.stop()
     finally:
         spark.stop()
 

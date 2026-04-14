@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.bash_operator import BashOperator
-from airflow.operators.python_operator import PythonOperator
-from airflow.operators.email_operator import EmailOperator
+from airflow.operators.bash import BashOperator
+from airflow.operators.email import EmailOperator
 from airflow.utils.dates import days_ago
 
 default_args = {
@@ -25,24 +24,32 @@ dag = DAG(
     tags=['clickstream', 'analytics'],
 )
 
-# Start Kafka producer
+# Spark packages for Delta Lake and Kafka integration
+SPARK_PACKAGES = (
+    "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,"
+    "io.delta:delta-spark_2.12:3.2.0"
+)
+
+# Start Kafka producer (runs for a limited time to generate test data)
 start_producer = BashOperator(
     task_id='start_kafka_producer',
-    bash_command='python /opt/airflow/dags/src/producer/producer.py',
+    bash_command='timeout 60 python /opt/airflow/dags/src/producer/producer.py || true',
     dag=dag,
 )
 
 # Start Spark streaming job
+# Note: For production, streaming job should run continuously (not via Airflow)
+# This is for demo/testing purposes - runs in local mode
 start_streaming = BashOperator(
     task_id='start_spark_streaming',
-    bash_command='spark-submit --master yarn --deploy-mode cluster /opt/airflow/dags/src/streaming/streaming_job.py',
+    bash_command=f'spark-submit --master local[*] --packages {SPARK_PACKAGES} /opt/airflow/dags/src/streaming/streaming_job.py',
     dag=dag,
 )
 
 # Run batch processing
 run_batch = BashOperator(
     task_id='run_batch_processing',
-    bash_command='spark-submit --master yarn --deploy-mode cluster /opt/airflow/dags/src/batch/batch_job.py',
+    bash_command=f'spark-submit --master local[*] --packages {SPARK_PACKAGES} /opt/airflow/dags/src/batch/batch_job.py',
     dag=dag,
 )
 
@@ -73,4 +80,4 @@ send_failure_notification = EmailOperator(
 )
 
 # Define task dependencies
-start_producer >> start_streaming >> run_batch >> run_dbt_tests >> [send_success_notification, send_failure_notification] 
+start_producer >> start_streaming >> run_batch >> run_dbt_tests >> [send_success_notification, send_failure_notification]
