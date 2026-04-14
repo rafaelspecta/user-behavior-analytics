@@ -4,17 +4,46 @@ A production-grade data pipeline for processing and analyzing user clickstream d
 
 ## 🏗️ Architecture
 
+### Delta Lake + Spark
+
 ```mermaid
 graph TD
     A[Kafka Producer] --> B[Kafka]
     B --> C[Spark Streaming]
     C --> D[Delta Lake]
-    C --> E[Hudi]
-    D --> F[Trino]
-    E --> F
-    F --> G[dbt]
-    G --> H[Redshift]
+    D --> E[Spark]
+    E --> F[Redshift]
+    F --> G[BI Tools]
 ```
+
+
+
+### Delta Lake + Trino + dbt
+
+```mermaid
+graph TD
+    A[Kafka Producer] --> B[Kafka]
+    B --> C[Spark Streaming]
+    C --> D[Delta Lake]
+    D --> E[Trino]
+    E --> F[dbt]
+    F --> G[Redshift]
+    G --> H[BI Tools]
+```
+
+
+
+### Hudi instead of Delta Lake
+
+```mermaid
+graph TD
+    A[Kafka Producer] --> B[Kafka]
+    B --> C[Spark Streaming]
+    C --> D[Hudi]
+    D --> E[...]
+```
+
+
 
 ## 🛠️ Tech Stack
 
@@ -62,12 +91,14 @@ graph TD
 ### Infrastructure Setup
 
 1. Initialize Terraform:
+
 ```bash
 cd terraform/environments/dev
 terraform init
 ```
 
-2. Apply infrastructure:
+1. Apply infrastructure:
+
 ```bash
 terraform apply
 ```
@@ -75,26 +106,31 @@ terraform apply
 ### Running the Pipeline
 
 1. Start Kafka:
+
 ```bash
 ./scripts/start_kafka.sh
 ```
 
-2. Start the producer:
+1. Start the producer:
+
 ```bash
 python src/producer/producer.py
 ```
 
-3. Start Spark streaming:
+1. Start Spark streaming:
+
 ```bash
 spark-submit src/streaming/streaming_job.py
 ```
 
-4. Run batch processing:
+1. Run batch processing:
+
 ```bash
 spark-submit src/batch/batch_job.py
 ```
 
-5. Run dbt tests:
+1. Run dbt tests:
+
 ```bash
 cd dbt
 dbt test
@@ -120,21 +156,25 @@ dbt test
 ## 📈 Performance Tuning
 
 ### Kafka
+
 - Optimize partition count based on throughput
 - Configure appropriate retention policies
 - Monitor consumer lag
 
 ### Spark
+
 - Tune executor memory and cores
 - Optimize shuffle partitions
 - Configure appropriate batch intervals
 
 ### Delta Lake
+
 - Regular compaction
 - Z-ordering for query performance
 - Vacuum old files
 
 ### Hudi
+
 - Configure appropriate compaction strategy
 - Optimize upsert performance
 - Manage file sizes
