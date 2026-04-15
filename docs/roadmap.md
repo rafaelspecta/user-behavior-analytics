@@ -91,8 +91,7 @@ Items not covered by the current implementation, organized by category.
 - Add healthcheck on port 10000
 - Expose port 10000 for dbt and external tools
 
-<details>
-<summary>Reference docker-compose spec</summary>
+Reference docker-compose spec
 
 ```yaml
 spark-thrift:
@@ -122,7 +121,7 @@ spark-thrift:
     start_period: 60s
 ```
 
-</details>
+
 
 ### dbt Integration
 
@@ -173,8 +172,7 @@ spark-thrift:
 - Install Airflow providers: `apache-airflow-providers-apache-spark`
 **Depends on:** This is a prerequisite for Airflow-orchestrated Spark and dbt
 
-<details>
-<summary>Reference Dockerfile (docker/airflow/Dockerfile)</summary>
+Reference Dockerfile (docker/airflow/Dockerfile)
 
 ```dockerfile
 FROM apache/airflow:3.2.0
@@ -210,7 +208,7 @@ RUN pip install --no-cache-dir \
     apache-airflow-providers-apache-spark
 ```
 
-</details>
+
 
 ### Airflow-Orchestrated Spark (Architecture B DAGs)
 
@@ -222,10 +220,19 @@ RUN pip install --no-cache-dir \
 - Create `dags/clickstream_streaming_dag.py` — checks Spark Master API for running streaming app, submits via `spark-submit --deploy-mode cluster --supervise` if not running, runs every minute with `max_active_runs=1`
 - Create `dags/clickstream_processing_dag.py` — daily batch DAG that runs producer (60s), spark-submit batch job, and dbt tests in sequence
 - Configure Airflow Spark connection: `AIRFLOW_CONN_SPARK_DEFAULT=spark://spark-master:7077`
+- Mount `./src` on **Spark worker containers** (not just Airflow) — in cluster deploy mode the driver executes on the worker, so the worker must have access to the application code
+
 **Depends on:** Custom Airflow image, Spark Thrift Server (for dbt tasks)
 
-<details>
-<summary>Key pattern: streaming DAG with ShortCircuitOperator</summary>
+#### Why `--deploy-mode cluster` is required
+
+In **client mode** (the current setup for the standalone streaming-job container), `spark-submit` runs the driver in the local process and `awaitTermination()` keeps it alive indefinitely — this is fine for a dedicated container, but inside an Airflow task it would block the task forever and never mark it as complete.
+
+In **cluster mode**, `spark-submit` hands the driver off to a Spark worker and returns immediately, so the Airflow task completes. The `--supervise` flag tells Spark to restart the driver on the worker if it crashes. This means the streaming job's `awaitTermination()` runs on the worker (not inside Airflow), and Airflow only needs to check periodically whether the job is still running — hence the `ShortCircuitOperator` pattern below.
+
+**Volume implication:** because the driver runs on the worker in cluster mode, `./src` must be mounted on worker containers (not just the submitting container). The current `docker-compose.yml` already mounts `./src:/opt/spark/app/src:ro` on `spark-worker`, so this is satisfied, but it's a non-obvious requirement to preserve.
+
+Key pattern: streaming DAG with ShortCircuitOperator
 
 ```python
 from airflow.operators.python import ShortCircuitOperator
@@ -248,7 +255,7 @@ check_job = ShortCircuitOperator(
 )
 ```
 
-</details>
+
 
 ### ~~Airflow 2.4+ Migration~~ (Done)
 
@@ -341,12 +348,14 @@ graph TD
 
 In addition to storage format scenarios, the project supports different **orchestration patterns** (see [architecture-guide.md](architecture-guide.md) for full details):
 
-| Architecture | Description | Status |
-| --- | --- | --- |
-| **A: Streaming-First** | Streaming runs as Docker containers, Airflow monitors only | **Working** |
-| **B: Airflow-Orchestrated** | Airflow submits and manages all jobs via spark-submit | Deferred (needs custom Airflow image) |
-| **C: Hybrid** | Streaming runs independently, Airflow orchestrates batch layer | Partially implemented |
-| **D: Event-Driven** | Airflow KafkaSensor triggers processing on data arrival | Deferred (needs kafka provider) |
+
+| Architecture                | Description                                                    | Status                                |
+| --------------------------- | -------------------------------------------------------------- | ------------------------------------- |
+| **A: Streaming-First**      | Streaming runs as Docker containers, Airflow monitors only     | **Working**                           |
+| **B: Airflow-Orchestrated** | Airflow submits and manages all jobs via spark-submit          | Deferred (needs custom Airflow image) |
+| **C: Hybrid**               | Streaming runs independently, Airflow orchestrates batch layer | Partially implemented                 |
+| **D: Event-Driven**         | Airflow KafkaSensor triggers processing on data arrival        | Deferred (needs kafka provider)       |
+
 
 ### Future Scenarios (Ideas)
 
