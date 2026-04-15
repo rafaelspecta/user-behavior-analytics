@@ -1,0 +1,9 @@
+.env
+.aidocs/
+.claude/
+.vscode/
+*__pycache*
+.mcp.json
+.python-version
+main.py
+pyproject.toml
