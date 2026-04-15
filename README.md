@@ -174,7 +174,7 @@ graph LR
 docker compose up -d
 ```
 
-This starts 11 containers: Zookeeper, Kafka, kafka-init, Kafdrop, Spark Master, Spark Worker, streaming-job, producer, Airflow, PostgreSQL, Trino, and LocalStack.
+This starts 12 containers: Zookeeper, Kafka, kafka-init, Kafdrop, Spark Master, Spark Worker, streaming-job, producer, Airflow, PostgreSQL, Trino, and LocalStack.
 
 Wait for all healthchecks to pass (1-3 minutes depending on hardware):
 
@@ -236,18 +236,18 @@ docker compose down -v    # Stop, remove containers AND volumes (clean slate)
 
 ## Airflow DAGs
 
-### clickstream_pipeline (manual trigger)
+### clickstream_pipeline (daily, paused at creation)
 
 ```mermaid
 graph LR
-    A[generate_sample_events] --> B[process_events]
-    B --> C[validate_data]
-    C --> D[create_report]
+    A[start_kafka_producer] --> B[start_spark_streaming]
+    B --> C[run_batch_processing]
+    C --> D[run_dbt_tests]
+    D --> E[send_success_notification]
+    D --> F[send_failure_notification]
 ```
 
-
-
-A simplified demo pipeline using PythonOperator tasks. Generates 200 synthetic events, aggregates by type/device, runs quality checks, and produces a summary report. Trigger manually from the Airflow UI to demonstrate DAG execution.
+Orchestrates the full data pipeline using BashOperator tasks. Runs the Kafka producer (60 s burst), Spark Structured Streaming, Spark batch aggregation, and dbt tests in sequence. On completion, sends a success or failure email notification. Scheduled daily at midnight but paused at creation — unpause from the Airflow UI to enable, or trigger manually.
 
 ### pipeline_health_monitor (every 5 min)
 
