@@ -91,6 +91,10 @@ services:
       - ivy2-cache:/tmp/ivy2
 
   streaming-job:
+    # Pipeline worker -- runs in BOTH architectures. Architecture A relies on
+    # it as the standalone streaming driver. Architecture B keeps it running
+    # the same way, with Airflow supervising via clickstream_streaming_supervisor.
+    profiles: [streaming-first, airflow-orchestrated]
     image: spark:3.5.3-scala2.12-java17-python3-ubuntu
     command: ["bash", "-c", "echo 'Waiting for S3 buckets...' && until curl -sf http://localstack:4566/_localstack/init/ready | grep -q SUCCESSFUL; do echo 'Init scripts not done yet...' && sleep 5; done && echo 'S3 buckets ready, starting streaming job...' && /opt/spark/bin/spark-submit --master spark://spark-master:7077 --name ClickstreamStreaming --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 /opt/spark/app/src/streaming/streaming_job.py"]
     environment:
@@ -113,6 +117,8 @@ services:
       - ivy2-cache:/tmp/ivy2
 
   producer:
+    # Continuous event source -- runs in BOTH architectures.
+    profiles: [streaming-first, airflow-orchestrated]
     build:
       context: ./docker/producer
     command: python /app/producer.py
@@ -127,6 +133,9 @@ services:
     restart: on-failure
 
   airflow:
+    # Only starts under the airflow-orchestrated profile. In streaming-first
+    # mode Airflow is not running (and not required).
+    profiles: [airflow-orchestrated]
     build: ./docker/airflow
     command: >
       bash -c "airflow db migrate && airflow standalone"
@@ -195,6 +204,9 @@ services:
       retries: 5
 
   trino: # Authentication is not enabled
+    # Reserved for Scenario 2 (Trino + dbt). Kept out of the default stack
+    # so it does not consume resources until a student opts in.
+    profiles: [trino]
     image: trinodb/trino:380
     ports:
       - "8082:8080"
