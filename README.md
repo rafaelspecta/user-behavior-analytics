@@ -176,6 +176,8 @@ Do NOT use this on a system that holds data you care about. For this project, th
 
 ## Architecture A — Streaming-First
 
+> **Want the architectural rationale?** See [docs/architecture-guide.md#architecture-a-streaming-first](docs/architecture-guide.md#architecture-a-streaming-first) for what this pattern is, when to use it, and its trade-offs.
+
 ### Start
 
 ```bash
@@ -377,6 +379,8 @@ docker compose --profile streaming-first down -v       # also drop volumes (clea
 ---
 
 ## Architecture B — Hybrid with Airflow
+
+> **Want the architectural rationale?** See [docs/architecture-guide.md#architecture-b-hybrid-with-airflow](docs/architecture-guide.md#architecture-b-hybrid-with-airflow) for what this pattern is, when to use it, and its trade-offs.
 
 Everything from Architecture A is still true here -- the same `producer` and `streaming-job` containers run the data plane. The difference is that **Airflow is now the operator**: it supervises the streaming container and orchestrates the batch run.
 
