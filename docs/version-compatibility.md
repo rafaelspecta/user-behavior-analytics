@@ -25,7 +25,7 @@ All Maven package names use the `_2.12` suffix because Spark is built with Scala
 | **hadoop-aws** | 3.3.4 | **Must exactly match** the Hadoop version bundled inside Spark 3.5.3. A mismatch causes `NoSuchMethodError` at runtime. |
 | **aws-java-sdk-bundle** | 1.12.262 | Required by hadoop-aws 3.3.4. Using a different version causes class-loading conflicts with S3A filesystem. |
 | **spark-sql-kafka** | 3.5.3 | Kafka connector for Structured Streaming. Must match the Spark version exactly. |
-| **Kafka** | 7.0.0 (CP) | Confluent Platform 7.0.0 images. No native ARM64 images — runs under QEMU emulation on Apple Silicon. |
+| **Kafka** | 7.6.1 (CP) | Confluent Platform 7.6.1 images. Multi-arch (amd64 + arm64), so native on Apple Silicon. Bumped from 7.0.0 which was amd64-only and unusably slow under QEMU. |
 | **Airflow** | 3.2.0 | Vanilla image. Uses `LocalExecutor` with PostgreSQL. Supports `@continuous` scheduling, data-aware workflows, and modern FastAPI-based UI. No authentication required (`SimpleAuthManager` with all-admins). |
 | **LocalStack** | 3.8 | Pinned to avoid breaking changes. Provides S3 and Redshift emulation. |
 | **Trino** | 380 | SQL query engine. Currently starts but has no catalog configured (see [roadmap](roadmap.md)). |
@@ -48,9 +48,9 @@ The batch job uses the same packages minus `spark-sql-kafka` (it doesn't read fr
 
 | Service | Image | Architecture | Notes |
 | --- | --- | --- | --- |
-| Zookeeper | `confluentinc/cp-zookeeper:7.0.0` | amd64 only | Runs under QEMU on ARM Macs |
-| Kafka | `confluentinc/cp-kafka:7.0.0` | amd64 only | Runs under QEMU on ARM Macs |
-| Kafka Init | `confluentinc/cp-kafka:7.0.0` | amd64 only | One-shot topic creation |
+| Zookeeper | `confluentinc/cp-zookeeper:7.6.1` | multi-arch | Native on amd64 and arm64 |
+| Kafka | `confluentinc/cp-kafka:7.6.1` | multi-arch | Native on amd64 and arm64 |
+| Kafka Init | `confluentinc/cp-kafka:7.6.1` | multi-arch | One-shot topic creation |
 | Kafdrop | `obsidiandynamics/kafdrop` | multi-arch | Kafka Web UI |
 | Spark Master | `spark:3.5.3-scala2.12-java17-python3-ubuntu` | multi-arch | Includes Python 3 for PySpark |
 | Spark Worker | `spark:3.5.3-scala2.12-java17-python3-ubuntu` | multi-arch | — |

@@ -1,7 +1,6 @@
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.0.0
-    platform: linux/amd64 # no arm64 version available
+    image: confluentinc/cp-zookeeper:7.6.1 # multi-arch (amd64 + arm64)
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -15,8 +14,7 @@ services:
       start_period: 120s
 
   kafka:
-    image: confluentinc/cp-kafka:7.0.0
-    platform: linux/amd64 # no arm64 version available
+    image: confluentinc/cp-kafka:7.6.1 # multi-arch (amd64 + arm64)
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -37,8 +35,7 @@ services:
       start_period: 60s
 
   kafka-init:
-    image: confluentinc/cp-kafka:7.0.0
-    platform: linux/amd64
+    image: confluentinc/cp-kafka:7.6.1 # multi-arch (amd64 + arm64)
     depends_on:
       kafka:
         condition: service_healthy
@@ -63,6 +60,11 @@ services:
       - SPARK_MASTER_HOST=spark-master
       - SPARK_MASTER_PORT=7077
       - SPARK_MASTER_WEBUI_PORT=8080
+      # Hostname used when Spark generates URLs in the UI (e.g. "Back
+      # to Master" links on worker and driver pages). Without this,
+      # Spark emits the container's internal hostname (like
+      # "8c5800c20758:8080") which the host browser can't resolve.
+      - SPARK_PUBLIC_DNS=localhost
       - SPARK_NO_DAEMONIZE=true
     ports:
       - "8080:8080"
@@ -70,6 +72,9 @@ services:
     volumes:
       - ./src:/opt/spark/app/src:ro
       - ivy2-cache:/tmp/ivy2
+    depends_on:
+      ivy2-cache-init:
+        condition: service_completed_successfully
 
   spark-worker:
     image: spark:3.5.3-scala2.12-java17-python3-ubuntu
@@ -77,14 +82,28 @@ services:
     environment:
       - SPARK_WORKER_MEMORY=1G
       - SPARK_WORKER_CORES=1
+      # Port alignment: same port inside the container and on the host
+      # so that SPARK_PUBLIC_DNS=localhost produces a usable URL
+      # (http://localhost:8083) in the Spark Master UI's Workers list.
+      - SPARK_WORKER_WEBUI_PORT=8083
+      - SPARK_PUBLIC_DNS=localhost
       - SPARK_NO_DAEMONIZE=true
+    ports:
+      - "8083:8083"
     depends_on:
-      - spark-master
+      spark-master:
+        condition: service_started
+      ivy2-cache-init:
+        condition: service_completed_successfully
     volumes:
       - ./src:/opt/spark/app/src:ro
       - ivy2-cache:/tmp/ivy2
 
   streaming-job:
+    # Pipeline worker -- runs in BOTH architectures. Architecture A relies on
+    # it as the standalone streaming driver. Architecture B keeps it running
+    # the same way, with Airflow supervising via clickstream_streaming_supervisor.
+    profiles: [streaming-first, airflow-orchestrated]
     image: spark:3.5.3-scala2.12-java17-python3-ubuntu
     command: ["bash", "-c", "echo 'Waiting for S3 buckets...' && until curl -sf http://localstack:4566/_localstack/init/ready | grep -q SUCCESSFUL; do echo 'Init scripts not done yet...' && sleep 5; done && echo 'S3 buckets ready, starting streaming job...' && /opt/spark/bin/spark-submit --master spark://spark-master:7077 --name ClickstreamStreaming --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 /opt/spark/app/src/streaming/streaming_job.py"]
     environment:
@@ -92,19 +111,39 @@ services:
       - S3_ENDPOINT=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+      # Makes the driver's per-app UI URL (linked from the Spark
+      # Master UI's "Running Applications" list) resolve as
+      # http://localhost:4040 instead of the container's internal
+      # hostname. Requires the 4040:4040 port mapping below.
+      - SPARK_PUBLIC_DNS=localhost
       - SPARK_NO_DAEMONIZE=true
+    ports:
+      # Driver (per-application) Spark UI. Shows stages, executors,
+      # and the Structured Streaming tab for ClickstreamStreaming.
+      - "4040:4040"
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       localstack:
         condition: service_healthy
       spark-master:
         condition: service_started
+      ivy2-cache-init:
+        condition: service_completed_successfully
     volumes:
       - ./src:/opt/spark/app/src:ro
       - ivy2-cache:/tmp/ivy2
+    # Self-heal on transient driver failures (e.g. S3A retries, Kafka
+    # reconnects). In Architecture B this is complemented by the
+    # clickstream_streaming_supervisor DAG, which restarts the
+    # container if the Spark app is missing from the master.
+    restart: on-failure
 
   producer:
+    # Continuous event source -- runs in BOTH architectures.
+    profiles: [streaming-first, airflow-orchestrated]
     build:
       context: ./docker/producer
     command: python /app/producer.py
@@ -114,12 +153,17 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     volumes:
       - ./src/producer:/app:ro
     restart: on-failure
 
   airflow:
-    image: apache/airflow:3.2.0
+    # Only starts under the airflow-orchestrated profile. In streaming-first
+    # mode Airflow is not running (and not required).
+    profiles: [airflow-orchestrated]
+    build: ./docker/airflow
     command: >
       bash -c "airflow db migrate && airflow standalone"
     environment:
@@ -129,15 +173,49 @@ services:
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS=true
+      # Env used by Airflow-launched spark-submit (batch DAG) and by PythonOperators
+      # in the supervision DAG. Mirrors the vars set on streaming-job/producer.
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - S3_ENDPOINT=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AIRFLOW_CONN_SPARK_DEFAULT=spark://spark-master:7077
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/dags/src
       - ./dbt:/opt/airflow/dags/dbt
+      # Shared Maven-dependency cache. Without this the Airflow-launched
+      # spark-submit re-downloads ~200MB of JARs on every run.
+      - ivy2-cache:/tmp/ivy2
+      # Docker Engine socket. The streaming supervision DAG uses this to
+      # restart the streaming-job container when the Spark app has died.
+      # On Linux hosts where the docker group GID is not 999, override with
+      # `group_add: ["<gid>"]` here (see docs/troubleshooting.md).
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8081:8080"
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+      localstack:
+        condition: service_healthy
+      ivy2-cache-init:
+        condition: service_completed_successfully
+
+  # One-shot helper: ensures the shared ivy2-cache volume is world-writable so
+  # both uid 185 (Spark containers) and uid 50000 (Airflow) can write to it.
+  # Replaces the manual `docker run --rm ...` workaround from docs/troubleshooting.md.
+  ivy2-cache-init:
+    image: busybox:1.36
+    command: ["sh", "-c", "chmod -R 777 /tmp/ivy2 && echo 'ivy2-cache perms OK'"]
+    volumes:
+      - ivy2-cache:/tmp/ivy2
+    restart: "no"
 
   postgres:
     image: postgres:13
@@ -153,6 +231,9 @@ services:
       retries: 5
 
   trino: # Authentication is not enabled
+    # Reserved for Scenario 2 (Trino + dbt). Kept out of the default stack
+    # so it does not consume resources until a student opts in.
+    profiles: [trino]
     image: trinodb/trino:380
     ports:
       - "8082:8080"

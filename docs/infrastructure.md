@@ -33,13 +33,19 @@ This document describes every Docker service, how they connect, and how they're 
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        ORCHESTRATION LAYER                                  │
+│                 ORCHESTRATION LAYER (airflow-orchestrated profile)          │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
 │  │                           Airflow :8081                              │   │
-│  │  ┌───────────────────────┐  ┌──────────────────────────────────┐    │   │
-│  │  │ clickstream_pipeline  │  │ pipeline_health_monitor          │    │   │
-│  │  │ (demo, manual trigger)│  │ (checks Kafka, Spark, S3)       │    │   │
-│  │  └───────────────────────┘  └──────────────────────────────────┘    │   │
+│  │  ┌──────────────────────┐  ┌─────────────────────────┐               │   │
+│  │  │ clickstream_streaming│  │ clickstream_batch       │               │   │
+│  │  │ _supervisor          │  │ (manual spark-submit    │               │   │
+│  │  │ (check + restart via │  │  Silver -> Gold)        │               │   │
+│  │  │  docker socket)      │  └─────────────────────────┘               │   │
+│  │  └──────────────────────┘                                            │   │
+│  │  ┌──────────────────────┐  ┌──────────────────────────┐              │   │
+│  │  │ clickstream_pipeline │  │ pipeline_health_monitor  │              │   │
+│  │  │ (demo)               │  │ (Kafka + S3 only)        │              │   │
+│  │  └──────────────────────┘  └──────────────────────────┘              │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -50,19 +56,19 @@ This document describes every Docker service, how they connect, and how they're 
 
 | Property | Value |
 | --- | --- |
-| Image | `confluentinc/cp-zookeeper:7.0.0` |
-| Platform | `linux/amd64` (no ARM64 version available) |
+| Image | `confluentinc/cp-zookeeper:7.6.1` |
+| Platform | multi-arch (amd64 + arm64) — native on Apple Silicon and Linux/Windows x86_64 |
 | Port | 2181 |
 | Purpose | Kafka cluster coordination |
 | Healthcheck | `echo srvr \| nc localhost 2181 \| grep Zookeeper` |
-| Notes | Under QEMU emulation on ARM Macs, startup takes 1-2 minutes. `start_period` is set to 120s to accommodate this. |
+| Notes | `start_period` is set to 120s as a safety margin for slower hosts. Native arm64 startup is typically 10-20s. |
 
 ### Kafka
 
 | Property | Value |
 | --- | --- |
-| Image | `confluentinc/cp-kafka:7.0.0` |
-| Platform | `linux/amd64` (no ARM64 version available) |
+| Image | `confluentinc/cp-kafka:7.6.1` |
+| Platform | multi-arch (amd64 + arm64) — native on Apple Silicon and Linux/Windows x86_64 |
 | Port | 9092 (external), 29092 (internal Docker network) |
 | Purpose | Message broker for clickstream events |
 | Healthcheck | `kafka-topics --bootstrap-server localhost:9092 --list` |
@@ -76,7 +82,7 @@ This document describes every Docker service, how they connect, and how they're 
 
 | Property | Value |
 | --- | --- |
-| Image | `confluentinc/cp-kafka:7.0.0` |
+| Image | `confluentinc/cp-kafka:7.6.1` |
 | Purpose | One-shot container to create Kafka topics on startup |
 | Depends on | Kafka (healthy) |
 | Script | `scripts/kafka-init/init-kafka-topics.sh` |
@@ -125,7 +131,8 @@ Creates two topics:
 | --- | --- |
 | Image | `spark:3.5.3-scala2.12-java17-python3-ubuntu` |
 | Purpose | Runs Spark Structured Streaming: Kafka → Delta Lake |
-| Depends on | Kafka (healthy), LocalStack (healthy), Spark Master (started) |
+| Profiles | `streaming-first`, `airflow-orchestrated` (runs under both) |
+| Depends on | Kafka (healthy), LocalStack (healthy), Spark Master (started), ivy2-cache-init (completed) |
 | Volumes | `./src` → `/opt/spark/app/src` (read-only), `ivy2-cache` → `/tmp/ivy2` |
 
 **Startup sequence:**
@@ -147,6 +154,7 @@ Creates two topics:
 | --- | --- |
 | Image | Custom (`docker/producer/Dockerfile`: Python 3.11-slim + kafka-python + faker) |
 | Purpose | Generates synthetic clickstream events and sends to Kafka |
+| Profiles | `streaming-first`, `airflow-orchestrated` (runs under both) |
 | Depends on | Kafka (healthy) |
 | Restart | `on-failure` |
 | Volumes | `./src/producer` → `/app` (read-only) |
@@ -160,25 +168,61 @@ Creates two topics:
 
 | Property | Value |
 | --- | --- |
-| Image | `apache/airflow:3.2.0` (vanilla, no custom build) |
+| Image | Custom build from `docker/airflow/Dockerfile` (based on `apache/airflow:3.2.0`) |
 | Port | 8081 (host) → 8080 (container) |
-| Purpose | Pipeline orchestration and monitoring |
+| Purpose | Supervises streaming container and orchestrates batch (Architecture B) |
 | URL | http://localhost:8081 |
+| Profile | `airflow-orchestrated` |
 | Authentication | None required (`SimpleAuthManager` with all-admins mode) |
 | Executor | LocalExecutor (backed by PostgreSQL) |
+| Restart | `unless-stopped` (supervision DAG depends on Airflow staying alive) |
 | Health endpoint | `http://localhost:8081/api/v2/monitor/health` |
-| Depends on | PostgreSQL (healthy) |
+| Depends on | PostgreSQL (healthy), Kafka (healthy), Spark Master (started), LocalStack (healthy), ivy2-cache-init (completed) |
+
+**Custom image contents** (see [`docker/airflow/Dockerfile`](../docker/airflow/Dockerfile)):
+
+- OpenJDK 17 (matches the Spark cluster image).
+- Apache Spark 3.5.3, copied via multi-stage build from `spark:3.5.3-scala2.12-java17-python3-ubuntu` -- guarantees version parity and avoids flaky downloads from `archive.apache.org`.
+- Python packages: `kafka-python`, `faker`, `python-dotenv`, `apache-airflow-providers-apache-spark`.
+- `airflow` user (uid 50000) added to a `docker` group so the supervision DAG can talk to `/var/run/docker.sock`.
+- `/tmp/ivy2` pre-created with 777 perms so the shared `ivy2-cache` volume is writable by uid 50000.
 
 **Volumes:**
 - `./dags` → `/opt/airflow/dags` (DAG definitions)
 - `./src` → `/opt/airflow/dags/src` (source code, accessible from DAGs)
-- `./dbt` → `/opt/airflow/dags/dbt` (dbt project)
+- `./dbt` → `/opt/airflow/dags/dbt` (dbt project, reserved for Scenario 2)
+- `ivy2-cache` → `/tmp/ivy2` (shared Maven cache -- avoids ~200MB re-downloads per batch run)
+- `/var/run/docker.sock` → `/var/run/docker.sock` (used by supervision DAG to restart the streaming-job container)
+
+**Extra environment variables** (set on the service in addition to the Airflow core vars):
+
+- `KAFKA_BOOTSTRAP_SERVERS=kafka:29092`
+- `S3_ENDPOINT=http://localstack:4566`
+- `AWS_ACCESS_KEY_ID=test` / `AWS_SECRET_ACCESS_KEY=test`
+- `AIRFLOW_CONN_SPARK_DEFAULT=spark://spark-master:7077`
 
 **DAGs:**
-- `clickstream_pipeline` — manual trigger, demo pipeline with PythonOperator tasks
-- `pipeline_health_monitor` — every 5 minutes, checks Kafka/Spark/S3 health
 
-> Airflow does **not** orchestrate the real streaming pipeline in the current setup (Architecture A). See [architecture-guide.md](architecture-guide.md) for alternative patterns.
+- [`clickstream_streaming_supervisor`](../dags/clickstream_streaming_dag.py) -- every 5 min, `max_active_runs=1`. Checks the Spark Master REST API for an active streaming application; if missing, restarts the `streaming-job` container via the Docker Engine API and waits 90s before reporting recovery status.
+
+  ```mermaid
+  graph LR
+      CH["check_streaming_health (PythonOperator)"] -->|"FAILED: app not found"| RS["restart_streaming_container (BashOperator, ALL_FAILED)"]
+      RS --> VR["verify_recovery (BashOperator, ALL_DONE, sleep 90s)"]
+      CH -->|"SUCCESS: app is alive"| VR
+  ```
+
+- [`clickstream_batch`](../dags/clickstream_batch_dag.py) -- manual trigger. Runs `spark-submit` against the Spark Standalone cluster to aggregate Silver → Gold, then verifies Gold-layer objects exist on S3.
+
+  ```mermaid
+  graph LR
+      BJ["run_batch_job (BashOperator) spark-submit batch_job.py"] --> VG["verify_gold_layer (BashOperator) check S3 objects"]
+  ```
+
+- [`pipeline_health_monitor`](../dags/pipeline_health_dag.py) -- every 5 min. Watches Kafka and S3. **Spark streaming health is no longer checked here** -- that responsibility lives in the supervisor DAG so the two DAGs do not duplicate work on the same schedule.
+- [`clickstream_pipeline`](../dags/pipeline_dag.py) -- demo DAG (manual trigger) kept for teaching value.
+
+> Airflow is part of **Architecture B (Hybrid)**. In Architecture A (`--profile streaming-first`) the Airflow service is not started.
 
 ### PostgreSQL
 
@@ -198,10 +242,11 @@ Creates two topics:
 | Image | `trinodb/trino:380` |
 | Port | 8082 (host) → 8080 (container) |
 | Purpose | SQL query engine (deferred — no catalog configured) |
+| Profile | `trino` (opt-in; not started by default) |
 | URL | http://localhost:8082 |
 | Volumes | `./config/trino` → `/etc/trino` |
 
-> Trino starts and is accessible but has no Delta Lake catalog configured. See [roadmap.md](roadmap.md) for details.
+> Trino is reserved for Scenario 2 (Trino + dbt). It lives behind its own profile so it does not consume resources when you only want to play with orchestration. See [roadmap.md](roadmap.md) for the Scenario 2 spec. To try it: `docker compose --profile trino up -d trino`.
 
 ### LocalStack
 
@@ -227,14 +272,24 @@ graph TD
     KA -->|started| KD[Kafdrop]
     KA -->|healthy| PR[Producer]
     KA -->|healthy| SJ[streaming-job]
+    KA -->|healthy| AF[Airflow]
 
-    SM[Spark Master] -->|started| SW[Spark Worker]
+    IVY[ivy2-cache-init] -->|completed| SM[Spark Master]
+    IVY -->|completed| SW[Spark Worker]
+    IVY -->|completed| SJ
+    IVY -->|completed| AF
+
+    SM -->|started| SW
     SM -->|started| SJ
+    SM -->|started| AF
 
     LS[LocalStack] -->|healthy| SJ
+    LS -->|healthy| AF
 
-    PG[PostgreSQL] -->|healthy| AF[Airflow]
+    PG[PostgreSQL] -->|healthy| AF
 ```
+
+The `ivy2-cache-init` service is a one-shot helper (`busybox:1.36`) that `chmod`s the shared `/tmp/ivy2` volume to 777 so every Ivy-using container (uid 185 for Spark, uid 50000 for Airflow) can read and write. See [troubleshooting.md](troubleshooting.md) for the historical permission issue it now resolves automatically.
 
 ## Volumes
 

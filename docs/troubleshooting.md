@@ -27,37 +27,41 @@ docker compose down -v && docker compose up -d
 
 ### Problem
 
-Confluent Kafka and Zookeeper images (`confluentinc/cp-kafka:7.0.0`, `confluentinc/cp-zookeeper:7.0.0`) are only available for `linux/amd64`. On ARM Macs, Docker runs these under QEMU emulation, which is **2-5x slower** than native.
+Kafka `health: starting` forever, or dependent services fail with `dependency failed to start: container ... is unhealthy` on an Apple Silicon Mac.
 
 ### Symptoms
 
-- `zookeeper` or `kafka` marked as `unhealthy` after startup
-- `dependency failed to start: container ... is unhealthy`
-- Services that depend on Kafka or Zookeeper refuse to start
-- Everything works after waiting longer and restarting
-
-### Fix
-
-Healthcheck timers must be tuned for emulation overhead. The current `docker-compose.yml` already applies these, but if you're still seeing timeouts, increase them further:
-
-```yaml
-healthcheck:
-  # Zookeeper
-  start_period: 120s  # was 30s — QEMU needs 1-2 minutes
-  interval: 15s       # was 10s
-  timeout: 10s        # was 5s
-  retries: 10         # was 5
-
-  # Kafka
-  start_period: 60s   # was 30s
-  interval: 15s       # was 10s
-  timeout: 15s        # was 10s
-  retries: 10         # was 5
-```
+- `docker compose ps` shows `kafka` stuck in `health: starting` for 3+ minutes
+- Dependent services (producer, streaming-job, airflow, etc.) stay in `Waiting` indefinitely during `up -d`
+- `kafdrop` logs show `Connection to node -1 (kafka/…:29092) could not be established. Broker may not be available.`
+- The Kafka healthcheck log shows `Health check exceeded timeout (15s)` repeatedly
 
 ### Root Cause
 
-The standard Zookeeper healthcheck (`nc -z localhost 2181`) can fail under emulation because the JVM takes longer to start. The improved healthcheck (`echo srvr | nc localhost 2181 | grep Zookeeper`) waits for the JVM to be fully initialized, not just the port to be open.
+Earlier versions of the Confluent images (`confluentinc/cp-kafka:7.0.0` and `cp-zookeeper:7.0.0`) were `linux/amd64` only. On Apple Silicon, Docker Desktop ran them under **QEMU x86_64 emulation**, which was slow enough that:
+
+1. Kafka's JVM took 3+ minutes just to bind `9092`/`29092`.
+2. The healthcheck command itself (`kafka-topics --bootstrap-server localhost:9092 --list`) is a **separate JVM process** that is *also* emulated, so it blew the 15s `timeout` on every single attempt — before Kafka was even listening.
+
+### Fix (already applied)
+
+The project now uses `confluentinc/cp-kafka:7.6.1` and `confluentinc/cp-zookeeper:7.6.1`, which are **multi-arch** (amd64 + arm64) and run natively on Apple Silicon. No `platform:` pins, no healthcheck tuning hacks.
+
+To verify you are running the native image (no QEMU):
+
+```bash
+# Should print aarch64 on Apple Silicon / ARM Linux, x86_64 on Intel/AMD Linux/Windows
+docker exec user-behavior-analytics-kafka-1 uname -m
+
+# The main Kafka process must be "java ...", NOT "qemu-x86_64 /usr/bin/java ..."
+docker exec user-behavior-analytics-kafka-1 bash -c "ps -o args= 1"
+```
+
+If you still see `qemu-x86_64` in the process list, your `docker-compose.yml` probably has a stale `platform: linux/amd64` pin on the Kafka or Zookeeper service — remove it.
+
+### If you're stuck on the old 7.0.0 images
+
+If for some reason you must stay on `cp-*:7.0.0`, healthcheck timers need to be extended well beyond the 15s/60s defaults. But the recommended fix is to upgrade — the 7.0 → 7.6 bump is ZooKeeper-compatible and requires no env-var changes.
 
 ---
 
@@ -117,20 +121,52 @@ docker exec user-behavior-analytics-localstack-1 \
 - `FileNotFoundException` when downloading Maven packages
 - `Permission denied` errors pointing to `/tmp/ivy2` or `/root/.ivy2`
 
-**Cause:** The `ivy2-cache` Docker volume was created by root, but Spark containers run as user `spark` (uid 185).
+**Cause:** The `ivy2-cache` Docker volume is shared by multiple uids: Spark containers run as user `spark` (uid 185), and -- since Architecture B -- the Airflow container also writes to this cache as user `airflow` (uid 50000). A volume initialised by one uid can be unreadable by the other.
 
-**Fix:**
+**Fix (automated):** The `ivy2-cache-init` service in `docker-compose.yml` is a one-shot helper that runs on every `docker compose up` and `chmod -R 777 /tmp/ivy2` on the shared volume. Services that depend on the cache (`spark-master`, `spark-worker`, `streaming-job`, `airflow`) all wait for this service to exit successfully via `depends_on.condition: service_completed_successfully`, so fresh clones never hit the permission issue.
+
+**Manual fallback (only if the automated fix somehow fails):**
 ```bash
-# Fix permissions on the ivy2-cache volume
 docker run --rm -v user-behavior-analytics_ivy2-cache:/tmp/ivy2 --user root \
-  spark:3.5.3-scala2.12-java17-python3-ubuntu \
-  bash -c "chown -R 185:185 /tmp/ivy2 && chmod -R 777 /tmp/ivy2"
+  busybox:1.36 \
+  sh -c "chmod -R 777 /tmp/ivy2"
 
-# Restart the streaming job
-docker compose restart streaming-job
+docker compose restart streaming-job airflow
 ```
 
-The `spark-submit` command uses `--conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2` to redirect Ivy to the writable volume.
+The `spark-submit` command uses `--conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2` to redirect Ivy to the shared volume (used by both `streaming-job` via `docker-compose.yml` and the Airflow batch DAG via `dags/clickstream_batch_dag.py`).
+
+### Problem: Airflow cannot access the Docker socket (Linux hosts)
+
+**Symptoms (Linux only):**
+- `clickstream_streaming_supervisor` fails at `restart_streaming_container` with `Got permission denied while trying to connect to the Docker daemon socket`.
+- `curl --unix-socket /var/run/docker.sock http://localhost/version` from inside the Airflow container returns `403`.
+
+**Cause:** On Linux hosts, `/var/run/docker.sock` is owned by `root:docker` with mode `0660`. The Airflow image adds the `airflow` user to a `docker` group with **gid 999** (the conventional value on Debian/Ubuntu). If your host's `docker` group uses a different gid (e.g. 998 on some distros, higher on RHEL/CentOS), the socket is unreadable from inside the container even though the user is "in the docker group" nominally.
+
+**Fix:** Override the group on the Airflow service with `group_add` so the container picks up the host's gid:
+
+```bash
+# Discover your host's docker gid first
+getent group docker | cut -d: -f3
+```
+
+```yaml
+# docker-compose.yml, airflow service
+airflow:
+  build: ./docker/airflow
+  group_add:
+    - "${HOST_DOCKER_GID:-999}"
+  # ...
+```
+
+Then `docker compose up -d airflow` (recreate) and verify:
+
+```bash
+docker compose exec airflow curl -sf --unix-socket /var/run/docker.sock http://localhost/version
+```
+
+On **macOS Docker Desktop** this issue does not occur because the socket is proxied through a VM; no override is needed.
 
 ### Problem: Spark worker can't create directories
 
