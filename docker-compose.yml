@@ -70,6 +70,9 @@ services:
     volumes:
       - ./src:/opt/spark/app/src:ro
       - ivy2-cache:/tmp/ivy2
+    depends_on:
+      ivy2-cache-init:
+        condition: service_completed_successfully
 
   spark-worker:
     image: spark:3.5.3-scala2.12-java17-python3-ubuntu
@@ -79,7 +82,10 @@ services:
       - SPARK_WORKER_CORES=1
       - SPARK_NO_DAEMONIZE=true
     depends_on:
-      - spark-master
+      spark-master:
+        condition: service_started
+      ivy2-cache-init:
+        condition: service_completed_successfully
     volumes:
       - ./src:/opt/spark/app/src:ro
       - ivy2-cache:/tmp/ivy2
@@ -100,6 +106,8 @@ services:
         condition: service_healthy
       spark-master:
         condition: service_started
+      ivy2-cache-init:
+        condition: service_completed_successfully
     volumes:
       - ./src:/opt/spark/app/src:ro
       - ivy2-cache:/tmp/ivy2
@@ -119,7 +127,7 @@ services:
     restart: on-failure
 
   airflow:
-    image: apache/airflow:3.2.0
+    build: ./docker/airflow
     command: >
       bash -c "airflow db migrate && airflow standalone"
     environment:
@@ -129,15 +137,49 @@ services:
       - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS=true
+      # Env used by Airflow-launched spark-submit (batch DAG) and by PythonOperators
+      # in the supervision DAG. Mirrors the vars set on streaming-job/producer.
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - S3_ENDPOINT=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AIRFLOW_CONN_SPARK_DEFAULT=spark://spark-master:7077
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/dags/src
       - ./dbt:/opt/airflow/dags/dbt
+      # Shared Maven-dependency cache. Without this the Airflow-launched
+      # spark-submit re-downloads ~200MB of JARs on every run.
+      - ivy2-cache:/tmp/ivy2
+      # Docker Engine socket. The streaming supervision DAG uses this to
+      # restart the streaming-job container when the Spark app has died.
+      # On Linux hosts where the docker group GID is not 999, override with
+      # `group_add: ["<gid>"]` here (see docs/troubleshooting.md).
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8081:8080"
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+      localstack:
+        condition: service_healthy
+      ivy2-cache-init:
+        condition: service_completed_successfully
+
+  # One-shot helper: ensures the shared ivy2-cache volume is world-writable so
+  # both uid 185 (Spark containers) and uid 50000 (Airflow) can write to it.
+  # Replaces the manual `docker run --rm ...` workaround from docs/troubleshooting.md.
+  ivy2-cache-init:
+    image: busybox:1.36
+    command: ["sh", "-c", "chmod -R 777 /tmp/ivy2 && echo 'ivy2-cache perms OK'"]
+    volumes:
+      - ivy2-cache:/tmp/ivy2
+    restart: "no"
 
   postgres:
     image: postgres:13
