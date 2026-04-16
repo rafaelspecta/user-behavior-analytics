@@ -120,8 +120,8 @@ Creates two topics:
 | --- | --- |
 | Image | `spark:3.5.3-scala2.12-java17-python3-ubuntu` |
 | Purpose | Executes Spark tasks assigned by the master |
-| Memory | 1G |
-| Cores | 1 |
+| Memory | 2G |
+| Cores | 2 (streaming and batch each capped at 1 via `spark.cores.max=1` on their submit, so both can run concurrently) |
 | Depends on | Spark Master |
 | Volumes | Same as Spark Master |
 

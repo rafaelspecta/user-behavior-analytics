@@ -177,6 +177,26 @@ On **macOS Docker Desktop** this issue does not occur because the socket is prox
 
 **Fix:** Mount source code to `/opt/spark/app/src:ro` instead of `/opt/spark/work/src:ro`. Update `spark-submit` paths accordingly.
 
+### Problem: "Initial job has not accepted any resources" — batch submit hangs forever
+
+**Symptoms:**
+- `spark-submit` for the batch job (either Architecture A manual run or the `clickstream_batch` DAG in Architecture B) logs:
+  ```
+  WARN TaskSchedulerImpl: Initial job has not accepted any resources;
+  check your cluster UI to ensure that workers are registered and have sufficient resources
+  ```
+- Message repeats every 15 seconds and the job never starts.
+
+**Cause:** All worker cores are held by another application (usually the long-lived `ClickstreamStreaming` app). On Spark Standalone, an app waits in `Running` state until the cluster can give it cores; it never times out on its own.
+
+**Fix (already applied):**
+- `spark-worker` runs with `SPARK_WORKER_CORES=2` / `SPARK_WORKER_MEMORY=2G`.
+- Both `ClickstreamStreaming` (in `docker-compose.yml`) and `ClickstreamBatch` (in the README's batch command and in `dags/clickstream_batch_dag.py`) are submitted with `--conf spark.cores.max=1 --conf spark.executor.memory=512m`, so each takes exactly 1 core and 512m RAM and the two fit side-by-side.
+
+**If you see this after the fix:** you're probably running a custom submit without the caps, or you resized `SPARK_WORKER_CORES` downward. Confirm in the Master UI ([http://localhost:8080](http://localhost:8080)) that the Workers row shows `2 (1 Used)` — if it shows `2 (2 Used)` the second core is pinned, so an additional app cannot schedule.
+
+---
+
 ### Problem: spark-submit command parsing errors
 
 **Symptoms:**
