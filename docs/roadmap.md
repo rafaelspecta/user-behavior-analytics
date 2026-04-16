@@ -1,5 +1,29 @@
 # Roadmap: Data Architecture Playground
 
+## Table of Contents
+
+- [Vision](#vision)
+- [Current State](#current-state)
+- [Deferred Items](#deferred-items)
+  - [Summary](#summary)
+  - [Redshift Sync](#redshift-sync)
+  - [Delta Table Compaction (ZORDER)](#delta-table-compaction-zorder)
+  - [Trino Catalog Configuration](#trino-catalog-configuration)
+  - [Spark Thrift Server](#spark-thrift-server)
+  - [dbt Integration](#dbt-integration)
+  - [Hudi Storage Format](#hudi-storage-format)
+  - [Docker Compose Profiles ✓ Done](#docker-compose-profiles--done)
+  - [Custom Airflow Image ✓ Done](#custom-airflow-image--done)
+  - [Airflow-Orchestrated Spark (Architecture B DAGs) ✓ Done as Hybrid](#airflow-orchestrated-spark-architecture-b-dags--done-as-hybrid)
+  - [~~Airflow 2.4+ Migration~~ (Done)](#airflow-24-migration-done)
+- [Architecture Scenario Roadmap](#architecture-scenario-roadmap)
+  - [Scenario 1: Delta Lake + Spark (Current)](#scenario-1-delta-lake--spark-current)
+  - [Scenario 2: Delta Lake + Trino + dbt](#scenario-2-delta-lake--trino--dbt)
+  - [Scenario 3: Hudi instead of Delta Lake](#scenario-3-hudi-instead-of-delta-lake)
+  - [Orchestration Architectures](#orchestration-architectures)
+  - [Future Scenarios (Ideas)](#future-scenarios-ideas)
+- [Implementation Priority](#implementation-priority)
+
 ## Vision
 
 This project aims to become a **Data Architecture Playground and Laboratory** where students can explore, compare, and compose different Modern Data Architecture patterns using real, running infrastructure -- all locally with Docker.
@@ -37,16 +61,16 @@ Items not covered by the current implementation, organized by category.
 ### Summary
 
 
-| Item                            | Category       | Blocked By                                                      | Effort | Status   |
-| ------------------------------- | -------------- | --------------------------------------------------------------- | ------ | -------- |
-| Redshift sync                   | Scenario 1     | No JDBC driver in Spark image                                   | Medium | Deferred |
-| Delta table compaction (ZORDER) | Scenario 1     | OSS Delta Lake limitation                                       | Low    | Deferred |
-| Trino catalog configuration     | Scenario 2     | Deleted `hive.properties`, no Delta connector                   | Medium | Deferred |
-| Spark Thrift Server             | Scenario 2     | Not deployed as Docker service                                  | Medium | Deferred |
-| dbt integration                 | Scenario 2     | Thrift Server missing, `profiles.yml` broken, dbt not installed | High   | Deferred |
-| Hudi storage format             | Scenario 3     | Code commented out, Hudi JARs not configured                    | Medium | Deferred |
-| Docker Compose profiles         | Infrastructure | -                                                               | Medium | **Done** |
-| Custom Airflow image            | Infrastructure | -                                                               | High   | **Done** |
+| Item                            | Category       | Blocked By                                                      | Effort | Status            |
+| ------------------------------- | -------------- | --------------------------------------------------------------- | ------ | ----------------- |
+| Redshift sync                   | Scenario 1     | No JDBC driver in Spark image                                   | Medium | Deferred          |
+| Delta table compaction (ZORDER) | Scenario 1     | OSS Delta Lake limitation                                       | Low    | Deferred          |
+| Trino catalog configuration     | Scenario 2     | Deleted `hive.properties`, no Delta connector                   | Medium | Deferred          |
+| Spark Thrift Server             | Scenario 2     | Not deployed as Docker service                                  | Medium | Deferred          |
+| dbt integration                 | Scenario 2     | Thrift Server missing, `profiles.yml` broken, dbt not installed | High   | Deferred          |
+| Hudi storage format             | Scenario 3     | Code commented out, Hudi JARs not configured                    | Medium | Deferred          |
+| Docker Compose profiles         | Infrastructure | -                                                               | Medium | **Done**          |
+| Custom Airflow image            | Infrastructure | -                                                               | High   | **Done**          |
 | Airflow-orchestrated Spark      | Infrastructure | PySpark/Standalone `--deploy-mode cluster` limit (see below)    | High   | **Done (Hybrid)** |
 
 
@@ -124,8 +148,6 @@ spark-thrift:
     start_period: 60s
 ```
 
-
-
 ### dbt Integration
 
 **Category:** Scenario 2 completion
@@ -166,7 +188,7 @@ See [docker-compose.yml](../docker-compose.yml) and [architecture-guide.md](arch
 ### Custom Airflow Image ✓ Done
 
 **Category:** Infrastructure
-**What shipped** (see [`docker/airflow/Dockerfile`](../docker/airflow/Dockerfile)):
+**What shipped** (see `[docker/airflow/Dockerfile](../docker/airflow/Dockerfile)`):
 
 - Base image: `apache/airflow:3.2.0`.
 - OpenJDK 17 installed from apt (JAVA_HOME resolved at build time so the image works on both amd64 and arm64).
@@ -175,16 +197,14 @@ See [docker-compose.yml](../docker-compose.yml) and [architecture-guide.md](arch
 - `airflow` user added to a `docker` group (gid 999) so the supervision DAG can talk to `/var/run/docker.sock`. Linux hosts with a different docker-gid need the `group_add` workaround documented in [troubleshooting.md](troubleshooting.md).
 - `/tmp/ivy2` pre-created with 777 permissions so the shared `ivy2-cache` volume is writable by uid 50000 (Airflow) alongside uid 185 (Spark).
 
-
-
 ### Airflow-Orchestrated Spark (Architecture B DAGs) ✓ Done as Hybrid
 
 **Category:** Infrastructure
 **What shipped:**
 
-- [`dags/clickstream_streaming_dag.py`](../dags/clickstream_streaming_dag.py) -- supervises, not submits. Every 5 minutes it calls the Spark Master REST API and, if no streaming app is active, restarts the streaming-job container via the Docker Engine API over the bind-mounted `/var/run/docker.sock`. A `verify_recovery` task waits 90s and re-checks. `max_active_runs=1`.
-- [`dags/clickstream_batch_dag.py`](../dags/clickstream_batch_dag.py) -- manual trigger. Runs `spark-submit` (with `-Divy.home=/tmp/ivy2` pointed at the shared cache) and verifies Gold-layer objects in S3.
-- [`dags/pipeline_health_dag.py`](../dags/pipeline_health_dag.py) -- updated to monitor Kafka and S3 only; Spark streaming health is now owned by the supervisor DAG so the two DAGs do not duplicate work on the same 5-minute schedule.
+- `[dags/clickstream_streaming_dag.py](../dags/clickstream_streaming_dag.py)` -- supervises, not submits. Every 5 minutes it calls the Spark Master REST API and, if no streaming app is active, restarts the streaming-job container via the Docker Engine API over the bind-mounted `/var/run/docker.sock`. A `verify_recovery` task waits 90s and re-checks. `max_active_runs=1`.
+- `[dags/clickstream_batch_dag.py](../dags/clickstream_batch_dag.py)` -- manual trigger. Runs `spark-submit` (with `-Divy.home=/tmp/ivy2` pointed at the shared cache) and verifies Gold-layer objects in S3.
+- `[dags/pipeline_health_dag.py](../dags/pipeline_health_dag.py)` -- updated to monitor Kafka and S3 only; Spark streaming health is now owned by the supervisor DAG so the two DAGs do not duplicate work on the same 5-minute schedule.
 - `docker-compose.yml` airflow service: added `AIRFLOW_CONN_SPARK_DEFAULT=spark://spark-master:7077`, `ivy2-cache` and `/var/run/docker.sock` volume mounts, expanded `depends_on` (kafka, spark-master, localstack, ivy2-cache-init), and `restart: unless-stopped`.
 
 #### Why the streaming job cannot be submitted from Airflow on Spark Standalone
@@ -195,8 +215,6 @@ The original roadmap called for submitting the streaming job from Airflow via `s
 - `--deploy-mode client` would run the driver inside the Airflow task, and `streaming_job.py` calls `awaitTermination()` -- so the Airflow task would block forever and never complete.
 
 The Hybrid pattern (streaming container + Airflow supervision) is the only way to get "Airflow in the loop" for the streaming layer on this cluster manager. Switching to YARN or K8s would unlock full Airflow submission -- a valuable teaching point about how infrastructure choices constrain orchestration patterns.
-
-
 
 ### ~~Airflow 2.4+ Migration~~ (Done)
 
@@ -290,12 +308,12 @@ graph TD
 In addition to storage format scenarios, the project supports different **orchestration patterns** (see [architecture-guide.md](architecture-guide.md) for full details):
 
 
-| Architecture                      | Description                                                                         | Status                                                 |
-| --------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| **A: Streaming-First**            | Streaming runs as Docker containers; batch triggered manually                       | **Working** (`--profile streaming-first`)              |
-| **B: Hybrid with Airflow**        | Streaming runs as a container; Airflow supervises it and orchestrates batch        | **Working** (`--profile airflow-orchestrated`)         |
-| B-alt: Full Airflow submission    | Airflow submits streaming via `spark-submit --deploy-mode cluster --supervise`      | Not possible on Spark Standalone (see section above)   |
-| **D: Event-Driven**               | Airflow KafkaSensor triggers processing on data arrival                             | Deferred (needs `apache-airflow-providers-apache-kafka`) |
+| Architecture                   | Description                                                                    | Status                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| **A: Streaming-First**         | Streaming runs as Docker containers; batch triggered manually                  | **Working** (`--profile streaming-first`)                |
+| **B: Hybrid with Airflow**     | Streaming runs as a container; Airflow supervises it and orchestrates batch    | **Working** (`--profile airflow-orchestrated`)           |
+| B-alt: Full Airflow submission | Airflow submits streaming via `spark-submit --deploy-mode cluster --supervise` | Not possible on Spark Standalone (see section above)     |
+| **D: Event-Driven**            | Airflow KafkaSensor triggers processing on data arrival                        | Deferred (needs `apache-airflow-providers-apache-kafka`) |
 
 
 ### Future Scenarios (Ideas)
@@ -336,6 +354,8 @@ graph TD
     HybridB --> Flink["Scenario: Flink"]
     Dashboards --> DataMesh["Scenario: Data Mesh"]
 ```
+
+
 
 The first three priorities have shipped (Profiles, Custom Airflow Image, Hybrid orchestration). Remaining priorities:
 

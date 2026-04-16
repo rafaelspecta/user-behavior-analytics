@@ -1,8 +1,24 @@
 # Data Flow
 
-This document describes how data moves through the pipeline, what transformations are applied at each stage, and how to inspect data at every step.
+This document describes how data *moves* through the pipeline: the journey an event takes from being generated in the producer, through Kafka and Spark, until it lands as an aggregated Gold-layer Delta table. Each stage includes the transformation applied, the resulting output location, and the exact commands to inspect what happened at that point.
 
-## End-to-End Flow
+For how the data *sits at rest* once it arrives (S3 bucket layout, S3A configuration, Delta Lake features, and the full Spark SQL → Delta → Parquet → S3A → S3 storage stack), see [data-storage.md](data-storage.md).
+
+## Table of Contents
+
+- [Overview](#overview)
+  - [End-to-End Flow](#end-to-end-flow)
+  - [Medallion Architecture](#medallion-architecture)
+- [Pipeline Stages](#pipeline-stages)
+  - [Stage 1: Event Generation (Producer)](#stage-1-event-generation-producer)
+  - [Stage 2: Kafka (Bronze Layer)](#stage-2-kafka-bronze-layer)
+  - [Stage 3: Stream Processing (Silver Layer)](#stage-3-stream-processing-silver-layer)
+  - [Stage 4: Batch Processing (Gold Layer)](#stage-4-batch-processing-gold-layer)
+- [See also](#see-also)
+
+## Overview
+
+### End-to-End Flow
 
 ```mermaid
 graph LR
@@ -31,21 +47,27 @@ graph LR
     B --> PP
 ```
 
-## Medallion Architecture
+
+
+### Medallion Architecture
 
 The pipeline follows the **Medallion Architecture** pattern with three layers:
 
-| Layer | Location | Format | Contents |
-| --- | --- | --- | --- |
-| **Bronze** | Kafka topic `clickstream-events` | JSON | Raw events as produced (no transformation) |
-| **Silver** | `s3a://user-behavior-analytics-silver/clickstream/delta/` | Delta Lake (Parquet) | Parsed JSON with processing timestamp added |
-| **Gold** | `s3a://user-behavior-analytics-gold/` | Delta Lake (Parquet) | Aggregated analytics tables |
 
-## Stage 1: Event Generation (Producer)
+| Layer      | Location                                                  | Format               | Contents                                    |
+| ---------- | --------------------------------------------------------- | -------------------- | ------------------------------------------- |
+| **Bronze** | Kafka topic `clickstream-events`                          | JSON                 | Raw events as produced (no transformation)  |
+| **Silver** | `s3a://user-behavior-analytics-silver/clickstream/delta/` | Delta Lake (Parquet) | Parsed JSON with processing timestamp added |
+| **Gold**   | `s3a://user-behavior-analytics-gold/`                     | Delta Lake (Parquet) | Aggregated analytics tables                 |
+
+
+## Pipeline Stages
+
+### Stage 1: Event Generation (Producer)
 
 The producer generates synthetic clickstream events at a configurable rate (default: 1 event/second).
 
-### Event Schema
+#### Event Schema
 
 ```json
 {
@@ -70,7 +92,7 @@ The producer generates synthetic clickstream events at a configurable rate (defa
 }
 ```
 
-### How to inspect
+#### How to inspect
 
 ```bash
 # Check producer is generating events
@@ -80,13 +102,13 @@ docker compose logs producer --tail 5
 docker compose logs producer 2>&1 | tail -1
 ```
 
-## Stage 2: Kafka (Bronze Layer)
+### Stage 2: Kafka (Bronze Layer)
 
 Events are serialized as JSON and sent to the `clickstream-events` topic (3 partitions, replication factor 1).
 
 A second topic `clickstream-errors` (1 partition) exists for dead-letter messages but is not currently used.
 
-### How to inspect
+#### How to inspect
 
 ```bash
 # Via Kafdrop Web UI
@@ -98,11 +120,11 @@ docker exec user-behavior-analytics-kafka-1 \
     --topic clickstream-events --from-beginning --max-messages 1
 ```
 
-## Stage 3: Stream Processing (Silver Layer)
+### Stage 3: Stream Processing (Silver Layer)
 
 Spark Structured Streaming reads from Kafka in **1-minute micro-batches**, parses the JSON, adds a `processing_timestamp`, and writes Delta Lake files to S3.
 
-### Transformation
+#### Transformation
 
 ```
 Kafka message (key=null, value=JSON bytes)
@@ -112,7 +134,7 @@ Kafka message (key=null, value=JSON bytes)
     → Write as Delta Lake to Silver bucket
 ```
 
-### Output location
+#### Output location
 
 ```
 s3://user-behavior-analytics-silver/
@@ -130,7 +152,7 @@ s3://user-behavior-analytics-silver/
     └── sources/
 ```
 
-### How to inspect
+#### How to inspect
 
 ```bash
 # Check streaming job is processing micro-batches
@@ -144,38 +166,42 @@ docker exec user-behavior-analytics-localstack-1 \
 open http://localhost:8080
 ```
 
-## Stage 4: Batch Processing (Gold Layer)
+### Stage 4: Batch Processing (Gold Layer)
 
 The batch job reads from Silver, creates two aggregated tables, and writes to Gold. It is run on-demand (not scheduled).
 
-### Aggregation: Daily User Activity
+#### Aggregation: Daily User Activity
 
 Groups by `(date, user_id)` and computes:
 
-| Column | Aggregation |
-| --- | --- |
-| `total_events` | `count(*)` |
-| `sessions` | `countDistinct(session_id)` |
-| `products_viewed` | `countDistinct(product_id)` |
-| `purchases` | `sum(event_type == 'purchase')` |
-| `avg_time_on_page` | `avg(time_on_page)` |
+
+| Column             | Aggregation                     |
+| ------------------ | ------------------------------- |
+| `total_events`     | `count(*)`                      |
+| `sessions`         | `countDistinct(session_id)`     |
+| `products_viewed`  | `countDistinct(product_id)`     |
+| `purchases`        | `sum(event_type == 'purchase')` |
+| `avg_time_on_page` | `avg(time_on_page)`             |
+
 
 **Output:** `s3a://user-behavior-analytics-gold/daily_user_activity/` (partitioned by `date`)
 
-### Aggregation: Product Performance
+#### Aggregation: Product Performance
 
 Groups by `(date, product_id)` and computes:
 
-| Column | Aggregation |
-| --- | --- |
-| `total_views` | `count(*)` |
-| `unique_users` | `countDistinct(user_id)` |
-| `purchases` | `sum(event_type == 'purchase')` |
-| `avg_time_on_page` | `avg(time_on_page)` |
+
+| Column             | Aggregation                     |
+| ------------------ | ------------------------------- |
+| `total_views`      | `count(*)`                      |
+| `unique_users`     | `countDistinct(user_id)`        |
+| `purchases`        | `sum(event_type == 'purchase')` |
+| `avg_time_on_page` | `avg(time_on_page)`             |
+
 
 **Output:** `s3a://user-behavior-analytics-gold/product_performance/` (partitioned by `date`)
 
-### How to run
+#### How to run
 
 ```bash
 docker exec user-behavior-analytics-spark-master-1 \
@@ -186,7 +212,7 @@ docker exec user-behavior-analytics-spark-master-1 \
     /opt/spark/app/src/batch/batch_job.py
 ```
 
-### How to inspect
+#### How to inspect
 
 ```bash
 # List Gold layer data
@@ -200,53 +226,7 @@ docker exec user-behavior-analytics-localstack-1 \
   awslocal s3 ls s3://user-behavior-analytics-gold/product_performance/
 ```
 
-## S3 Bucket Layout
+## See also
 
-```
-LocalStack S3 (http://localstack:4566)
-│
-├── user-behavior-analytics-silver/
-│   ├── clickstream/delta/           # Silver Delta table
-│   │   ├── _delta_log/             #   Transaction log
-│   │   └── *.snappy.parquet        #   Data files
-│   └── checkpoints/delta/           # Streaming checkpoints
-│       ├── commits/
-│       ├── metadata
-│       ├── offsets/
-│       └── sources/
-│
-└── user-behavior-analytics-gold/
-    ├── daily_user_activity/          # Gold Delta table
-    │   ├── _delta_log/
-    │   ├── date=2026-04-14/         #   Partitioned by date
-    │   └── ...
-    └── product_performance/          # Gold Delta table
-        ├── _delta_log/
-        ├── date=2026-04-14/         #   Partitioned by date
-        └── ...
-```
+- [data-storage.md](data-storage.md) — S3 bucket layout, S3A configuration, Delta Lake features in use, and the full Spark SQL → Delta → Parquet → S3A → S3 storage stack.
 
-## S3A Configuration
-
-All Spark jobs connect to LocalStack S3 using the S3A filesystem with these settings:
-
-| Setting | Value | Purpose |
-| --- | --- | --- |
-| `fs.s3a.endpoint` | `http://localstack:4566` | LocalStack endpoint |
-| `fs.s3a.access.key` | `test` | LocalStack default credentials |
-| `fs.s3a.secret.key` | `test` | LocalStack default credentials |
-| `fs.s3a.path.style.access` | `true` | Required for LocalStack (no virtual-hosted-style) |
-| `fs.s3a.impl` | `org.apache.hadoop.fs.s3a.S3AFileSystem` | Hadoop S3A implementation |
-
-## Delta Lake Features in Use
-
-| Feature | Where | Details |
-| --- | --- | --- |
-| **ACID transactions** | Silver + Gold | Every micro-batch is an atomic commit |
-| **Append mode** | Silver (streaming) | New events are appended, never overwritten |
-| **Overwrite mode** | Gold (batch) | Aggregations are fully recomputed each run |
-| **Partitioning** | Gold tables | Partitioned by `date` for efficient queries |
-| **Checkpointing** | Streaming | Kafka offsets stored in `checkpoints/delta/` for exactly-once delivery |
-| **VACUUM** | Batch job | Removes old files (retention: 168 hours) |
-
-> **Note:** `OPTIMIZE ... ZORDER BY` is a Databricks-only feature and is not available in open-source Delta Lake. See [roadmap.md](roadmap.md) for details.

@@ -2,6 +2,15 @@
 
 > **Changing one version can break the entire stack.** This document explains the dependency chain and why each version was chosen.
 
+## Table of Contents
+
+- [Dependency Chain](#dependency-chain)
+- [Version Matrix](#version-matrix)
+- [Maven Packages (spark-submit --packages)](#maven-packages-spark-submit---packages)
+- [Docker Images](#docker-images)
+- [Future Version Considerations](#future-version-considerations)
+- [References](#references)
+
 ## Dependency Chain
 
 ```

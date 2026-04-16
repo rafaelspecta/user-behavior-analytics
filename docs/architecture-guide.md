@@ -4,6 +4,22 @@ This project is designed as a **Data Architecture Playground** where different o
 
 ---
 
+## Table of Contents
+
+- [Current State](#current-state)
+- [Architecture A vs B — what changes](#architecture-a-vs-b--what-changes)
+- [Orchestration Architectures](#orchestration-architectures)
+  - [Architecture A: Streaming-First](#architecture-a-streaming-first)
+  - [Architecture B: Hybrid with Airflow](#architecture-b-hybrid-with-airflow)
+  - [Architecture B-alt: Full Airflow Submission (not runnable on Spark Standalone)](#architecture-b-alt-full-airflow-submission-not-runnable-on-spark-standalone)
+  - [Architecture D: Event-Driven (Kafka-Triggered)](#architecture-d-event-driven-kafka-triggered)
+- [Storage Format Architectures](#storage-format-architectures)
+- [How to Switch Architectures](#how-to-switch-architectures)
+  - [Profile-to-service mapping](#profile-to-service-mapping)
+- [Related Documentation](#related-documentation)
+
+---
+
 ## Current State
 
 Two orchestration architectures are runnable today via Docker Compose profiles:
@@ -238,7 +254,8 @@ graph TD
 ## Related Documentation
 
 - [infrastructure.md](infrastructure.md) — Service-by-service reference, including the custom Airflow image and the new DAGs.
-- [data-flow.md](data-flow.md) — Medallion layers, write paths, and inspection commands.
+- [data-flow.md](data-flow.md) — Pipeline journey: producer, Kafka, streaming, Silver, batch, Gold; inspection commands at each stage.
+- [data-storage.md](data-storage.md) — Storage at rest: S3 bucket layout, S3A configuration, Delta Lake features, and the full Spark SQL → Delta → Parquet → S3A → S3 storage stack.
 - [troubleshooting.md](troubleshooting.md) — Common gotchas (ivy2-cache permissions, Docker socket on Linux hosts).
 - [roadmap.md](roadmap.md) — Deferred items, implementation specs, and future vision.
 

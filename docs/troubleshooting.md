@@ -2,6 +2,35 @@
 
 Common issues encountered when running the pipeline locally on macOS, and how to fix them.
 
+## Table of Contents
+
+- [Quick Diagnostics](#quick-diagnostics)
+- [QEMU Emulation (ARM Mac / Apple Silicon)](#qemu-emulation-arm-mac--apple-silicon)
+  - [Problem](#problem)
+  - [Symptoms](#symptoms)
+  - [Root Cause](#root-cause)
+  - [Fix (already applied)](#fix-already-applied)
+  - [If you're stuck on the old 7.0.0 images](#if-youre-stuck-on-the-old-700-images)
+- [LocalStack Init Scripts](#localstack-init-scripts)
+  - [Problem: S3 buckets not created](#problem-s3-buckets-not-created)
+  - [Problem: LocalStack healthcheck says "unhealthy"](#problem-localstack-healthcheck-says-unhealthy)
+- [Spark / Streaming Job](#spark--streaming-job)
+  - [Problem: "Failed to find data source: kafka"](#problem-failed-to-find-data-source-kafka)
+  - [Problem: Ivy2 cache permission errors](#problem-ivy2-cache-permission-errors)
+  - [Problem: Airflow cannot access the Docker socket (Linux hosts)](#problem-airflow-cannot-access-the-docker-socket-linux-hosts)
+  - [Problem: Spark worker can't create directories](#problem-spark-worker-cant-create-directories)
+  - [Problem: "Initial job has not accepted any resources" — batch submit hangs forever](#problem-initial-job-has-not-accepted-any-resources--batch-submit-hangs-forever)
+  - [Problem: spark-submit command parsing errors](#problem-spark-submit-command-parsing-errors)
+  - [Problem: No logs visible](#problem-no-logs-visible)
+- [Kafka Producer](#kafka-producer)
+  - [Problem: Producer can't connect to Kafka](#problem-producer-cant-connect-to-kafka)
+- [Port Conflicts](#port-conflicts)
+  - [Problem: "Bind for 0.0.0.0:XXXX failed: port is already allocated"](#problem-bind-for-00000xxxx-failed-port-is-already-allocated)
+- [Airflow](#airflow)
+  - [Problem: DAGs not visible](#problem-dags-not-visible)
+  - [Problem: "airflow db init" errors on restart](#problem-airflow-db-init-errors-on-restart)
+- [Complete Reset](#complete-reset)
+
 ## Quick Diagnostics
 
 ```bash
@@ -70,6 +99,7 @@ If for some reason you must stay on `cp-*:7.0.0`, healthcheck timers need to be 
 ### Problem: S3 buckets not created
 
 **Symptoms:**
+
 - `streaming-job` fails with `Bucket does not exist`
 - `awslocal s3 ls` returns empty list
 - LocalStack healthcheck passes but buckets are missing
@@ -77,6 +107,7 @@ If for some reason you must stay on `cp-*:7.0.0`, healthcheck timers need to be 
 **Cause:** The init script at `scripts/localstack-init/init-s3-buckets.sh` doesn't have execute permissions.
 
 **Fix:**
+
 ```bash
 chmod +x scripts/localstack-init/init-s3-buckets.sh
 docker compose restart localstack
@@ -87,12 +118,14 @@ docker compose restart localstack
 ### Problem: LocalStack healthcheck says "unhealthy"
 
 **Symptoms:**
+
 - `localstack` container starts but health status is `unhealthy`
 - Other services that depend on LocalStack won't start
 
 **Cause:** The healthcheck looks for `"s3"` in the health response. Early in startup, the S3 service may report as `"initializing"` instead of `"running"`.
 
 **Fix:** The current healthcheck (`grep -q '"s3"'`) matches any status string. If you're still seeing issues:
+
 ```bash
 # Check what LocalStack reports
 docker exec user-behavior-analytics-localstack-1 \
@@ -106,11 +139,13 @@ docker exec user-behavior-analytics-localstack-1 \
 ### Problem: "Failed to find data source: kafka"
 
 **Symptoms:**
+
 - `streaming-job` logs show `java.lang.ClassNotFoundException` or `Failed to find data source: kafka`
 
 **Cause:** The Kafka connector JAR isn't available. Packages specified in `spark.jars.packages` inside Python code are not always picked up in client mode.
 
 **Fix:** Ensure the `spark-submit` command in `docker-compose.yml` includes `--packages`:
+
 ```
 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,io.delta:delta-spark_2.12:3.2.0,...
 ```
@@ -118,6 +153,7 @@ docker exec user-behavior-analytics-localstack-1 \
 ### Problem: Ivy2 cache permission errors
 
 **Symptoms:**
+
 - `FileNotFoundException` when downloading Maven packages
 - `Permission denied` errors pointing to `/tmp/ivy2` or `/root/.ivy2`
 
@@ -126,6 +162,7 @@ docker exec user-behavior-analytics-localstack-1 \
 **Fix (automated):** The `ivy2-cache-init` service in `docker-compose.yml` is a one-shot helper that runs on every `docker compose up` and `chmod -R 777 /tmp/ivy2` on the shared volume. Services that depend on the cache (`spark-master`, `spark-worker`, `streaming-job`, `airflow`) all wait for this service to exit successfully via `depends_on.condition: service_completed_successfully`, so fresh clones never hit the permission issue.
 
 **Manual fallback (only if the automated fix somehow fails):**
+
 ```bash
 docker run --rm -v user-behavior-analytics_ivy2-cache:/tmp/ivy2 --user root \
   busybox:1.36 \
@@ -139,6 +176,7 @@ The `spark-submit` command uses `--conf spark.driver.extraJavaOptions=-Divy.home
 ### Problem: Airflow cannot access the Docker socket (Linux hosts)
 
 **Symptoms (Linux only):**
+
 - `clickstream_streaming_supervisor` fails at `restart_streaming_container` with `Got permission denied while trying to connect to the Docker daemon socket`.
 - `curl --unix-socket /var/run/docker.sock http://localhost/version` from inside the Airflow container returns `403`.
 
@@ -171,6 +209,7 @@ On **macOS Docker Desktop** this issue does not occur because the socket is prox
 ### Problem: Spark worker can't create directories
 
 **Symptoms:**
+
 - `spark-worker` fails with `Failed to create directory /opt/spark/work/...`
 
 **Cause:** Volume mounts placed inside `/opt/spark/work/` make the parent directory read-only. The worker needs to create temporary directories there.
@@ -180,6 +219,7 @@ On **macOS Docker Desktop** this issue does not occur because the socket is prox
 ### Problem: "Initial job has not accepted any resources" — batch submit hangs forever
 
 **Symptoms:**
+
 - `spark-submit` for the batch job (either Architecture A manual run or the `clickstream_batch` DAG in Architecture B) logs:
   ```
   WARN TaskSchedulerImpl: Initial job has not accepted any resources;
@@ -190,6 +230,7 @@ On **macOS Docker Desktop** this issue does not occur because the socket is prox
 **Cause:** All worker cores are held by another application (usually the long-lived `ClickstreamStreaming` app). On Spark Standalone, an app waits in `Running` state until the cluster can give it cores; it never times out on its own.
 
 **Fix (already applied):**
+
 - `spark-worker` runs with `SPARK_WORKER_CORES=2` / `SPARK_WORKER_MEMORY=2G`.
 - Both `ClickstreamStreaming` (in `docker-compose.yml`) and `ClickstreamBatch` (in the README's batch command and in `dags/clickstream_batch_dag.py`) are submitted with `--conf spark.cores.max=1 --conf spark.executor.memory=512m`, so each takes exactly 1 core and 512m RAM and the two fit side-by-side.
 
@@ -200,12 +241,14 @@ On **macOS Docker Desktop** this issue does not occur because the socket is prox
 ### Problem: spark-submit command parsing errors
 
 **Symptoms:**
+
 - `--master: command not found`
 - Arguments seem to be concatenated or broken
 
 **Cause:** YAML multiline string folding (`>` or `|`) can insert unwanted characters. Multi-line `command:` strings get interpreted incorrectly.
 
 **Fix:** Use JSON array format for the command:
+
 ```yaml
 command: ["bash", "-c", "... && /opt/spark/bin/spark-submit --master spark://spark-master:7077 ..."]
 ```
@@ -217,12 +260,14 @@ command: ["bash", "-c", "... && /opt/spark/bin/spark-submit --master spark://spa
 ### Problem: No logs visible
 
 **Symptoms:**
+
 - `docker compose logs producer` shows nothing or only startup messages
 - Container is running but appears silent
 
 **Cause:** Python buffers stdout by default in non-interactive mode. Logs are generated but held in the buffer.
 
 **Fix:** Ensure `PYTHONUNBUFFERED=1` is set in the producer's environment:
+
 ```yaml
 producer:
   environment:
@@ -232,6 +277,7 @@ producer:
 ### Problem: Producer can't connect to Kafka
 
 **Symptoms:**
+
 - `NoBrokersAvailable` error
 - Connection refused to `localhost:9092`
 
@@ -246,17 +292,22 @@ producer:
 ### Problem: "Bind for 0.0.0.0:XXXX failed: port is already allocated"
 
 **Symptoms:**
+
 - `docker compose up` fails for a specific service
 - Error mentions port conflict
 
 **Common culprits:**
-| Port | Used By | Conflicts With |
-| --- | --- | --- |
-| 8080 | Spark Master UI | Other web services (e.g., Jenkins) |
-| 9000 | Kafdrop (default) | MinIO, Portainer, PHP-FPM |
-| 8081 | Airflow | Other web services |
+
+
+| Port | Used By           | Conflicts With                     |
+| ---- | ----------------- | ---------------------------------- |
+| 8080 | Spark Master UI   | Other web services (e.g., Jenkins) |
+| 9000 | Kafdrop (default) | MinIO, Portainer, PHP-FPM          |
+| 8081 | Airflow           | Other web services                 |
+
 
 **Fix:**
+
 ```bash
 # Find what's using the port
 lsof -i :9000
@@ -266,6 +317,7 @@ docker ps --format "table {{.Names}}\t{{.Ports}}" | grep 9000
 ```
 
 Then change the **host** port mapping in `docker-compose.yml` (left side of `:`):
+
 ```yaml
 ports:
   - "9033:9000"  # host:container — change the left side
@@ -278,12 +330,14 @@ ports:
 ### Problem: DAGs not visible
 
 **Symptoms:**
+
 - Airflow UI shows no DAGs or only example DAGs
 - Custom DAGs don't appear
 
 **Cause:** DAG parsing errors, or the volume mount is incorrect.
 
 **Fix:**
+
 ```bash
 # Check DAG parsing errors
 docker exec user-behavior-analytics-airflow-1 airflow dags list-import-errors
@@ -321,3 +375,4 @@ docker compose up -d
 # Wait for services to become healthy (2-5 minutes on ARM Macs)
 watch docker compose ps
 ```
+
