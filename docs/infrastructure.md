@@ -56,19 +56,19 @@ This document describes every Docker service, how they connect, and how they're 
 
 | Property | Value |
 | --- | --- |
-| Image | `confluentinc/cp-zookeeper:7.0.0` |
-| Platform | `linux/amd64` (no ARM64 version available) |
+| Image | `confluentinc/cp-zookeeper:7.6.1` |
+| Platform | multi-arch (amd64 + arm64) — native on Apple Silicon and Linux/Windows x86_64 |
 | Port | 2181 |
 | Purpose | Kafka cluster coordination |
 | Healthcheck | `echo srvr \| nc localhost 2181 \| grep Zookeeper` |
-| Notes | Under QEMU emulation on ARM Macs, startup takes 1-2 minutes. `start_period` is set to 120s to accommodate this. |
+| Notes | `start_period` is set to 120s as a safety margin for slower hosts. Native arm64 startup is typically 10-20s. |
 
 ### Kafka
 
 | Property | Value |
 | --- | --- |
-| Image | `confluentinc/cp-kafka:7.0.0` |
-| Platform | `linux/amd64` (no ARM64 version available) |
+| Image | `confluentinc/cp-kafka:7.6.1` |
+| Platform | multi-arch (amd64 + arm64) — native on Apple Silicon and Linux/Windows x86_64 |
 | Port | 9092 (external), 29092 (internal Docker network) |
 | Purpose | Message broker for clickstream events |
 | Healthcheck | `kafka-topics --bootstrap-server localhost:9092 --list` |
@@ -82,7 +82,7 @@ This document describes every Docker service, how they connect, and how they're 
 
 | Property | Value |
 | --- | --- |
-| Image | `confluentinc/cp-kafka:7.0.0` |
+| Image | `confluentinc/cp-kafka:7.6.1` |
 | Purpose | One-shot container to create Kafka topics on startup |
 | Depends on | Kafka (healthy) |
 | Script | `scripts/kafka-init/init-kafka-topics.sh` |

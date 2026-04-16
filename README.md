@@ -2,7 +2,7 @@
 
 A Dockerized data pipeline for processing and analyzing user clickstream data at scale, designed as a hands-on laboratory for Modern Data Architecture patterns. You can spin it up under **two switchable orchestration architectures** and see, step by step, how events flow from producer to Kafka to Delta Lake and how Airflow supervises and orchestrates the pipeline.
 
-This README is the practical operations guide. For architecture deep-dives see [`docs/architecture-guide.md`](docs/architecture-guide.md); for the service-by-service reference see [`docs/infrastructure.md`](docs/infrastructure.md).
+This README is the practical operations guide. For architecture deep-dives see `[docs/architecture-guide.md](docs/architecture-guide.md)`; for the service-by-service reference see `[docs/infrastructure.md](docs/infrastructure.md)`.
 
 ---
 
@@ -11,29 +11,29 @@ This README is the practical operations guide. For architecture deep-dives see [
 ### Tech stack
 
 
-| Component         | Technology                        | Purpose                                           |
-| ----------------- | --------------------------------- | ------------------------------------------------- |
-| Event Producer    | Python, Faker, kafka-python       | Synthetic clickstream generation                  |
-| Message Broker    | Apache Kafka + Zookeeper          | Real-time event ingestion                         |
-| Stream Processing | Apache Spark Structured Streaming | Kafka → Delta Lake streaming                      |
-| Storage Format    | Delta Lake 3.2                    | ACID transactions, time travel                    |
-| Object Storage    | LocalStack S3                     | Local AWS S3 emulation                            |
-| Batch Processing  | Apache Spark                      | Silver → Gold aggregation                         |
-| Orchestration     | Apache Airflow 3.2                | Streaming supervision + batch orchestration (B)   |
-| SQL Query Engine  | Trino 380                         | Reserved for Scenario 2 (Trino + dbt)             |
-| Kafka Web UI      | Kafdrop                           | Topic inspection and message browsing             |
-| Database          | PostgreSQL 13                     | Airflow metadata                                  |
+| Component         | Technology                        | Purpose                                         |
+| ----------------- | --------------------------------- | ----------------------------------------------- |
+| Event Producer    | Python, Faker, kafka-python       | Synthetic clickstream generation                |
+| Message Broker    | Apache Kafka + Zookeeper          | Real-time event ingestion                       |
+| Stream Processing | Apache Spark Structured Streaming | Kafka → Delta Lake streaming                    |
+| Storage Format    | Delta Lake 3.2                    | ACID transactions, time travel                  |
+| Object Storage    | LocalStack S3                     | Local AWS S3 emulation                          |
+| Batch Processing  | Apache Spark                      | Silver → Gold aggregation                       |
+| Orchestration     | Apache Airflow 3.2                | Streaming supervision + batch orchestration (B) |
+| SQL Query Engine  | Trino 380                         | Reserved for Scenario 2 (Trino + dbt)           |
+| Kafka Web UI      | Kafdrop                           | Topic inspection and message browsing           |
+| Database          | PostgreSQL 13                     | Airflow metadata                                |
 
 
 ### Web UIs
 
 
-| Service      | URL                                            | Available under       | Credentials       |
-| ------------ | ---------------------------------------------- | --------------------- | ----------------- |
-| Kafdrop      | [http://localhost:9033](http://localhost:9033) | A + B                 | —                 |
-| Spark Master | [http://localhost:8080](http://localhost:8080) | A + B                 | —                 |
-| Airflow      | [http://localhost:8081](http://localhost:8081) | B only                | No login required |
-| Trino        | [http://localhost:8082](http://localhost:8082) | `--profile trino` only | —                |
+| Service      | URL                                            | Available under        | Credentials       |
+| ------------ | ---------------------------------------------- | ---------------------- | ----------------- |
+| Kafdrop      | [http://localhost:9033](http://localhost:9033) | A + B                  | —                 |
+| Spark Master | [http://localhost:8080](http://localhost:8080) | A + B                  | —                 |
+| Airflow      | [http://localhost:8081](http://localhost:8081) | B only                 | No login required |
+| Trino        | [http://localhost:8082](http://localhost:8082) | `--profile trino` only | —                 |
 
 
 ### Project structure
@@ -76,7 +76,7 @@ Two runnable orchestration architectures share the same data pipeline containers
 - **Architecture A — Streaming-First.** Streaming runs as a long-lived Docker container; batch is triggered manually. No Airflow.
 - **Architecture B — Hybrid with Airflow.** Same streaming container, but Airflow supervises it (auto-restart via the Docker Engine API) and orchestrates batch (`spark-submit` from inside Airflow). This is the pattern most production teams use.
 
-For the side-by-side comparison diagram, the profile-to-service mapping, and the explanation of why full Airflow submission is not possible on Spark Standalone (PySpark limitation), see [`docs/architecture-guide.md`](docs/architecture-guide.md).
+For the side-by-side comparison diagram, the profile-to-service mapping, and the explanation of why full Airflow submission is not possible on Spark Standalone (PySpark limitation), see `[docs/architecture-guide.md](docs/architecture-guide.md)`.
 
 ---
 
@@ -84,7 +84,7 @@ For the side-by-side comparison diagram, the profile-to-service mapping, and the
 
 - [Docker Desktop](https://docs.docker.com/get-docker/) (or Docker Engine + Compose v2)
 - **8 GB+ RAM** allocated to Docker -- the stack peaks around 5-6 GB under normal load
-- **Apple Silicon note:** the Confluent Kafka/Zookeeper images run under amd64 emulation via QEMU. Initial startup can take 2-3 minutes.
+- A POSIX shell for the copy-paste commands in this guide: macOS/Linux terminal, **WSL2** on Windows, or Git Bash. PowerShell and `cmd.exe` will not run the multi-line blocks verbatim.
 
 Clone and enter the project:
 
@@ -94,6 +94,21 @@ cd user-behavior-analytics
 ```
 
 No Python virtualenv is required -- everything runs in containers.
+
+### Cross-platform support
+
+This project is intended to run on **Linux, macOS (Intel and Apple Silicon), and Windows 10/11**. Concretely:
+
+| Host | Supported | How |
+| --- | --- | --- |
+| Linux x86_64 / arm64 | Yes | Docker Engine + Compose v2 |
+| macOS Intel | Yes | Docker Desktop |
+| macOS Apple Silicon (arm64) | Yes | Docker Desktop — all images resolve to native arm64 variants, no QEMU emulation |
+| Windows 10/11 | Yes | Docker Desktop with the **WSL2 backend** (run all commands from inside a WSL2 distro such as Ubuntu) |
+
+All commands below assume a POSIX shell and Compose v2 (`docker compose`, not `docker-compose`).
+
+**Contributor rule:** every image we pull or build must have **multi-arch manifests (amd64 + arm64)**. If a required image is single-arch, we either find an alternative, build our own multi-arch image, or explicitly pin `platform:` and document the emulation cost in `docs/troubleshooting.md`. History: the project originally pinned Kafka/Zookeeper to `linux/amd64`, which made the stack nearly unusable on Apple Silicon because QEMU emulation stretched Kafka startup to 3+ minutes and blew the healthcheck timeouts. The current `confluentinc/cp-*:7.6.1` images are multi-arch, so this is no longer an issue.
 
 ### Switching between architectures (important)
 
@@ -278,22 +293,26 @@ You should see four DAGs: `clickstream_batch`, `clickstream_pipeline`, `clickstr
 Steps 1-5 below are identical to Architecture A (event arrives → Kafdrop → Spark UI → S3 → `spark-sql` → batch). The interesting new piece is step 6, where Airflow takes over orchestration.
 
 #### 1. Watch events on Kafdrop
+
 Same as Architecture A step 1 above -- [http://localhost:9033](http://localhost:9033) → `clickstream-events`.
 
 #### 2. See streaming at work in the Spark UI
+
 Same as Architecture A step 2 -- [http://localhost:8080](http://localhost:8080) → `ClickstreamStreaming`.
 
 #### 3. Confirm data on S3
+
 Same as Architecture A step 3.
 
 #### 4. Query the Silver layer with `spark-sql`
+
 Same as Architecture A step 4. The data is identical because the streaming container is the same.
 
 #### 5. Run the batch aggregation — but this time via Airflow
 
 Open [http://localhost:8081](http://localhost:8081). No login is required (SimpleAuthManager is enabled).
 
-- Unpause the **`clickstream_batch`** DAG (toggle in the DAGs table)
+- Unpause the `**clickstream_batch**` DAG (toggle in the DAGs table)
 - Click the DAG name → **Trigger DAG** (the play button)
 - Watch the two tasks run in order: `run_batch_job` (spark-submit executed from inside Airflow) → `verify_gold_layer` (S3 object count check)
 - Click `run_batch_job` → **Logs** to see the full `spark-submit` output, including Ivy resolution (which should be instant after the first run thanks to the shared `ivy2-cache` volume)
@@ -304,25 +323,19 @@ Verify the Gold data exists exactly as in Architecture A step 5 (via `awslocal s
 
 The real differentiator of Architecture B is **streaming supervision**. Open [http://localhost:8081](http://localhost:8081) and explore these DAGs:
 
-- **`clickstream_streaming_supervisor`** (every 5 min, `max_active_runs=1`). Unpause it. The DAG graph has three tasks:
+- `**clickstream_streaming_supervisor`** (every 5 min, `max_active_runs=1`). Unpause it. The DAG graph has three tasks:
   - `check_streaming_health` (Python) — calls the Spark Master REST API, raises `RuntimeError` if no streaming app is active
   - `restart_streaming_container` (Bash, trigger_rule=`all_failed`) — only fires when the check fails; uses the Docker Engine API over `/var/run/docker.sock` to restart the streaming-job container
   - `verify_recovery` (Bash, trigger_rule=`all_done`) — waits 90 s and re-checks
-
   Try the failure-injection drill:
-
   ```bash
   # kill the streaming job
   docker compose stop streaming-job
   ```
-
   Wait for the next supervisor run (≤ 5 min, or trigger manually). In the DAG graph you'll see `check_streaming_health` fail, `restart_streaming_container` succeed, and `verify_recovery` pass once the Spark driver re-registers (usually within 30-90 s).
-
-- **`pipeline_health_monitor`** (every 5 min). Watches Kafka (via Kafdrop) and S3. Streaming health is intentionally NOT checked here to avoid duplicating the supervisor DAG.
-
-- **`clickstream_batch`** — used in step 5 above. Good candidate for a cron schedule (`0 * * * *`) in a real deployment.
-
-- **`clickstream_pipeline`** — a demo DAG retained for teaching.
+- `**pipeline_health_monitor**` (every 5 min). Watches Kafka (via Kafdrop) and S3. Streaming health is intentionally NOT checked here to avoid duplicating the supervisor DAG.
+- `**clickstream_batch**` — used in step 5 above. Good candidate for a cron schedule (`0 * * * *`) in a real deployment.
+- `**clickstream_pipeline**` — a demo DAG retained for teaching.
 
 ### Stop
 
@@ -348,11 +361,11 @@ After `down -v` the next `up` will re-run all init scripts (Kafka topics, S3 buc
 
 ## Further reading
 
-- [`docs/architecture-guide.md`](docs/architecture-guide.md) — A vs B comparison, B-alt (why full Airflow submission is not possible on Spark Standalone), event-driven future, and the profile-to-service mapping.
-- [`docs/infrastructure.md`](docs/infrastructure.md) — Service-by-service reference (image, ports, volumes, depends_on, the custom Airflow image, and per-DAG diagrams).
-- [`docs/data-flow.md`](docs/data-flow.md) — Medallion layers, write paths, and inspection commands.
-- [`docs/troubleshooting.md`](docs/troubleshooting.md) — Ivy cache permissions, Docker socket on Linux hosts, QEMU startup, etc.
-- [`docs/roadmap.md`](docs/roadmap.md) — Deferred work (Trino + dbt, Hudi, Redshift sync) and the implementation priority.
+- `[docs/architecture-guide.md](docs/architecture-guide.md)` — A vs B comparison, B-alt (why full Airflow submission is not possible on Spark Standalone), event-driven future, and the profile-to-service mapping.
+- `[docs/infrastructure.md](docs/infrastructure.md)` — Service-by-service reference (image, ports, volumes, depends_on, the custom Airflow image, and per-DAG diagrams).
+- `[docs/data-flow.md](docs/data-flow.md)` — Medallion layers, write paths, and inspection commands.
+- `[docs/troubleshooting.md](docs/troubleshooting.md)` — Ivy cache permissions, Docker socket on Linux hosts, QEMU startup, etc.
+- `[docs/roadmap.md](docs/roadmap.md)` — Deferred work (Trino + dbt, Hudi, Redshift sync) and the implementation priority.
 
 ---
 

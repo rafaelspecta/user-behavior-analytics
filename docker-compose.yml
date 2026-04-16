@@ -1,7 +1,6 @@
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.0.0
-    platform: linux/amd64 # no arm64 version available
+    image: confluentinc/cp-zookeeper:7.6.1 # multi-arch (amd64 + arm64)
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -15,8 +14,7 @@ services:
       start_period: 120s
 
   kafka:
-    image: confluentinc/cp-kafka:7.0.0
-    platform: linux/amd64 # no arm64 version available
+    image: confluentinc/cp-kafka:7.6.1 # multi-arch (amd64 + arm64)
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -37,8 +35,7 @@ services:
       start_period: 60s
 
   kafka-init:
-    image: confluentinc/cp-kafka:7.0.0
-    platform: linux/amd64
+    image: confluentinc/cp-kafka:7.6.1 # multi-arch (amd64 + arm64)
     depends_on:
       kafka:
         condition: service_healthy
@@ -106,6 +103,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       localstack:
         condition: service_healthy
       spark-master:
@@ -128,6 +127,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     volumes:
       - ./src/producer:/app:ro
     restart: on-failure

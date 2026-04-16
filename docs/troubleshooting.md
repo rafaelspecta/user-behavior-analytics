@@ -27,37 +27,41 @@ docker compose down -v && docker compose up -d
 
 ### Problem
 
-Confluent Kafka and Zookeeper images (`confluentinc/cp-kafka:7.0.0`, `confluentinc/cp-zookeeper:7.0.0`) are only available for `linux/amd64`. On ARM Macs, Docker runs these under QEMU emulation, which is **2-5x slower** than native.
+Kafka `health: starting` forever, or dependent services fail with `dependency failed to start: container ... is unhealthy` on an Apple Silicon Mac.
 
 ### Symptoms
 
-- `zookeeper` or `kafka` marked as `unhealthy` after startup
-- `dependency failed to start: container ... is unhealthy`
-- Services that depend on Kafka or Zookeeper refuse to start
-- Everything works after waiting longer and restarting
-
-### Fix
-
-Healthcheck timers must be tuned for emulation overhead. The current `docker-compose.yml` already applies these, but if you're still seeing timeouts, increase them further:
-
-```yaml
-healthcheck:
-  # Zookeeper
-  start_period: 120s  # was 30s — QEMU needs 1-2 minutes
-  interval: 15s       # was 10s
-  timeout: 10s        # was 5s
-  retries: 10         # was 5
-
-  # Kafka
-  start_period: 60s   # was 30s
-  interval: 15s       # was 10s
-  timeout: 15s        # was 10s
-  retries: 10         # was 5
-```
+- `docker compose ps` shows `kafka` stuck in `health: starting` for 3+ minutes
+- Dependent services (producer, streaming-job, airflow, etc.) stay in `Waiting` indefinitely during `up -d`
+- `kafdrop` logs show `Connection to node -1 (kafka/…:29092) could not be established. Broker may not be available.`
+- The Kafka healthcheck log shows `Health check exceeded timeout (15s)` repeatedly
 
 ### Root Cause
 
-The standard Zookeeper healthcheck (`nc -z localhost 2181`) can fail under emulation because the JVM takes longer to start. The improved healthcheck (`echo srvr | nc localhost 2181 | grep Zookeeper`) waits for the JVM to be fully initialized, not just the port to be open.
+Earlier versions of the Confluent images (`confluentinc/cp-kafka:7.0.0` and `cp-zookeeper:7.0.0`) were `linux/amd64` only. On Apple Silicon, Docker Desktop ran them under **QEMU x86_64 emulation**, which was slow enough that:
+
+1. Kafka's JVM took 3+ minutes just to bind `9092`/`29092`.
+2. The healthcheck command itself (`kafka-topics --bootstrap-server localhost:9092 --list`) is a **separate JVM process** that is *also* emulated, so it blew the 15s `timeout` on every single attempt — before Kafka was even listening.
+
+### Fix (already applied)
+
+The project now uses `confluentinc/cp-kafka:7.6.1` and `confluentinc/cp-zookeeper:7.6.1`, which are **multi-arch** (amd64 + arm64) and run natively on Apple Silicon. No `platform:` pins, no healthcheck tuning hacks.
+
+To verify you are running the native image (no QEMU):
+
+```bash
+# Should print aarch64 on Apple Silicon / ARM Linux, x86_64 on Intel/AMD Linux/Windows
+docker exec user-behavior-analytics-kafka-1 uname -m
+
+# The main Kafka process must be "java ...", NOT "qemu-x86_64 /usr/bin/java ..."
+docker exec user-behavior-analytics-kafka-1 bash -c "ps -o args= 1"
+```
+
+If you still see `qemu-x86_64` in the process list, your `docker-compose.yml` probably has a stale `platform: linux/amd64` pin on the Kafka or Zookeeper service — remove it.
+
+### If you're stuck on the old 7.0.0 images
+
+If for some reason you must stay on `cp-*:7.0.0`, healthcheck timers need to be extended well beyond the 15s/60s defaults. But the recommended fix is to upgrade — the 7.0 → 7.6 bump is ZooKeeper-compatible and requires no env-var changes.
 
 ---
 
