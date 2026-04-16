@@ -77,7 +77,14 @@ services:
     environment:
       - SPARK_WORKER_MEMORY=1G
       - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_WEBUI_PORT=8081
       - SPARK_NO_DAEMONIZE=true
+    ports:
+      # Worker web UI. Exposed so users can reach it directly at
+      # http://localhost:8083/ -- the "worker" link inside the master
+      # UI hands out the worker's Docker-network IP and is not
+      # reachable from the host.
+      - "8083:8081"
     depends_on:
       spark-master:
         condition: service_started
@@ -114,6 +121,11 @@ services:
     volumes:
       - ./src:/opt/spark/app/src:ro
       - ivy2-cache:/tmp/ivy2
+    # Self-heal on transient driver failures (e.g. S3A retries, Kafka
+    # reconnects). In Architecture B this is complemented by the
+    # clickstream_streaming_supervisor DAG, which restarts the
+    # container if the Spark app is missing from the master.
+    restart: on-failure
 
   producer:
     # Continuous event source -- runs in BOTH architectures.

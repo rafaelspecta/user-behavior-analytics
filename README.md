@@ -32,8 +32,11 @@ This README is the practical operations guide. For architecture deep-dives see `
 | ------------ | ---------------------------------------------- | ---------------------- | ----------------- |
 | Kafdrop      | [http://localhost:9033](http://localhost:9033) | A + B                  | —                 |
 | Spark Master | [http://localhost:8080](http://localhost:8080) | A + B                  | —                 |
+| Spark Worker | [http://localhost:8083](http://localhost:8083) | A + B                  | —                 |
 | Airflow      | [http://localhost:8081](http://localhost:8081) | B only                 | No login required |
 | Trino        | [http://localhost:8082](http://localhost:8082) | `--profile trino` only | —                 |
+
+> The "worker" link inside the Spark Master UI hands out the worker's Docker-network IP (e.g. `172.25.0.6:8081`) and will not open from your browser. Use `http://localhost:8083` instead for the Worker web UI.
 
 
 ### Project structure
@@ -124,6 +127,24 @@ docker compose down --remove-orphans
 
 before starting a different profile. The `--remove-orphans` flag tears down any container from this compose project that is not selected by the new profile. It's a ~1-10 second operation that will NOT rebuild any images -- the custom Airflow and producer images stay cached and are reused on the next `up`. The "Start" blocks below prepend this step so copy-paste is always safe.
 
+> **Compose v2 quirk worth knowing.** `docker compose down --remove-orphans` *without* `--profile` flags only reaches services that have no `profiles:` attribute. To tear down everything including profile-scoped containers (`producer`, `streaming-job`, `airflow`, `trino`), use the "Reset state" command below, which explicitly lists every profile.
+
+### Reset state (clean slate)
+
+If something is stuck -- stale checkpoints, topic offsets that don't match Kafka reality, failed DAG runs, a corrupted LocalStack volume, mismatched Delta/Parquet metadata -- wipe everything and start over. This is the demo equivalent of a factory reset:
+
+```bash
+docker compose \
+  --profile streaming-first \
+  --profile airflow-orchestrated \
+  --profile trino \
+  down --remove-orphans --volumes
+```
+
+`--volumes` (`-v`) drops the named volumes (`localstack-volume`, `postgres-db-volume`, `ivy2-cache`). Next `up` will re-create the S3 buckets, the Postgres/Airflow schema, and the Maven cache from scratch. Image layers stay cached, so this completes in ~15 s; the subsequent `up` takes ~1-2 minutes longer than normal because Spark has to resolve Maven coordinates into the fresh `ivy2-cache` again.
+
+Do NOT use this on a system that holds data you care about. For this project, there is no such data -- the producer generates synthetic events.
+
 ---
 
 ## Architecture A — Streaming-First
@@ -159,13 +180,15 @@ Kafdrop is the Kafka Web UI. Open [http://localhost:9033](http://localhost:9033)
 
 **B. Read the partitions table — this is how you know it's working.** You'll see a table with one row per partition (0, 1, 2):
 
-| Column              | What it means                                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Partition**       | Partition id. A Kafka topic is split into N independent, ordered logs; here N=3, so events are striped across 3 sub-logs.     |
-| **First Offset**    | Oldest retained offset (usually 0 while nothing has been deleted by retention).                                               |
-| **Last Offset**     | Next offset to be written. Grows by ~1 every time the producer writes to this partition.                                      |
-| **Size**            | Number of messages currently in this partition = `Last Offset - First Offset`. **This is the "event count" you were looking for.** |
-| **Leader / Preferred Leader** | Broker id serving this partition. `1` for all three, because we run a single broker.                                |
+
+| Column                        | What it means                                                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Partition**                 | Partition id. A Kafka topic is split into N independent, ordered logs; here N=3, so events are striped across 3 sub-logs.          |
+| **First Offset**              | Oldest retained offset (usually 0 while nothing has been deleted by retention).                                                    |
+| **Last Offset**               | Next offset to be written. Grows by ~1 every time the producer writes to this partition.                                           |
+| **Size**                      | Number of messages currently in this partition = `Last Offset - First Offset`. **This is the "event count" you were looking for.** |
+| **Leader / Preferred Leader** | Broker id serving this partition. `1` for all three, because we run a single broker.                                               |
+
 
 Refresh the page. The **Last Offset** and **Size** columns should tick up every second or two, with writes spread fairly evenly across the three partitions. That is the direct evidence that events are flowing: producer → Kafka.
 
@@ -193,10 +216,12 @@ The second command prints one line per partition in the form `clickstream-events
 
 #### 2. See Spark Structured Streaming at work
 
-Open [http://localhost:8080](http://localhost:8080):
+Open the **Spark Master UI** at [http://localhost:8080](http://localhost:8080). Two sections matter:
 
-- **Running Applications** lists a single app `ClickstreamStreaming` in `RUNNING` state
-- Click the app name to see the driver/executor layout, then **Streaming** tab (once a micro-batch has completed) for input-rate / processed-rows graphs
+- **Workers** — should list one worker with `State = ALIVE`, `Cores = 1 (1 Used)`, and `Memory` showing a non-zero "Used" figure. **If Cores shows `1 (0 Used)`, the streaming driver is not attached to the cluster** — see "Troubleshooting" below.
+- **Running Applications** — should list a single app named `ClickstreamStreaming` in state `RUNNING`. Click the app name to drill into the driver's Spark UI (stages, executors, and the **Structured Streaming** tab once the first micro-batch has completed — input-rate / processed-rows graphs).
+
+> Clicking the **worker row** in the Master UI takes you to `http://172.25.0.6:8081` (the worker's Docker-network IP) and will fail to load from your browser. Use [http://localhost:8083](http://localhost:8083) for the Worker web UI.
 
 For raw driver logs:
 
@@ -205,6 +230,15 @@ docker compose logs streaming-job --tail 20 --follow
 ```
 
 Each micro-batch log line shows `numInputRows`, `processedRowsPerSecond`, and batch duration.
+
+**Troubleshooting: `ClickstreamStreaming` not listed / `0 Used` cores.** The streaming driver is dead. Check its exit status:
+
+```bash
+docker compose ps --all streaming-job
+docker compose logs streaming-job --tail 80
+```
+
+If it's `Exited`, the `restart: on-failure` policy should already have brought it back once -- so seeing it persistently dead means the failure is non-transient (bad code, bad config, Kafka/S3 unreachable). Fix the underlying cause, then run `docker compose --profile streaming-first up -d streaming-job` to bring it back. If the checkpoint state on S3 is inconsistent (e.g. after resetting Kafka without resetting LocalStack), the cleanest recovery is the "Reset state" procedure below.
 
 #### 3. Confirm data landing on S3 (LocalStack)
 
