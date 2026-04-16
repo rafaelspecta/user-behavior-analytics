@@ -60,6 +60,11 @@ services:
       - SPARK_MASTER_HOST=spark-master
       - SPARK_MASTER_PORT=7077
       - SPARK_MASTER_WEBUI_PORT=8080
+      # Hostname used when Spark generates URLs in the UI (e.g. "Back
+      # to Master" links on worker and driver pages). Without this,
+      # Spark emits the container's internal hostname (like
+      # "8c5800c20758:8080") which the host browser can't resolve.
+      - SPARK_PUBLIC_DNS=localhost
       - SPARK_NO_DAEMONIZE=true
     ports:
       - "8080:8080"
@@ -77,14 +82,14 @@ services:
     environment:
       - SPARK_WORKER_MEMORY=1G
       - SPARK_WORKER_CORES=1
-      - SPARK_WORKER_WEBUI_PORT=8081
+      # Port alignment: same port inside the container and on the host
+      # so that SPARK_PUBLIC_DNS=localhost produces a usable URL
+      # (http://localhost:8083) in the Spark Master UI's Workers list.
+      - SPARK_WORKER_WEBUI_PORT=8083
+      - SPARK_PUBLIC_DNS=localhost
       - SPARK_NO_DAEMONIZE=true
     ports:
-      # Worker web UI. Exposed so users can reach it directly at
-      # http://localhost:8083/ -- the "worker" link inside the master
-      # UI hands out the worker's Docker-network IP and is not
-      # reachable from the host.
-      - "8083:8081"
+      - "8083:8083"
     depends_on:
       spark-master:
         condition: service_started
@@ -106,7 +111,16 @@ services:
       - S3_ENDPOINT=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+      # Makes the driver's per-app UI URL (linked from the Spark
+      # Master UI's "Running Applications" list) resolve as
+      # http://localhost:4040 instead of the container's internal
+      # hostname. Requires the 4040:4040 port mapping below.
+      - SPARK_PUBLIC_DNS=localhost
       - SPARK_NO_DAEMONIZE=true
+    ports:
+      # Driver (per-application) Spark UI. Shows stages, executors,
+      # and the Structured Streaming tab for ClickstreamStreaming.
+      - "4040:4040"
     depends_on:
       kafka:
         condition: service_healthy
