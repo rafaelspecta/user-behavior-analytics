@@ -269,7 +269,7 @@ This is the "before" experience in the Trino + dbt story: you already have a rea
 ```bash
 docker compose exec -it spark-master \
   /opt/spark/bin/spark-sql \
-    --master spark://spark-master:7077 \
+    --master "local[*]" \
     --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 \
     --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
     --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
@@ -280,6 +280,8 @@ docker compose exec -it spark-master \
     --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false \
     --packages io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262
 ```
+
+> **Why `--master "local[*]"` and not `spark://spark-master:7077`?** The demo cluster has a single worker with **1 core**, and that core is already taken by the `ClickstreamStreaming` application. If you submitted `spark-sql` to the cluster, it would register as a new app and wait forever for a core to free up. `local[*]` runs the query entirely inside the `spark-master` container using JVM threads, so it doesn't compete with streaming and starts immediately. This is the standard pattern for ad-hoc Delta queries in a sandbox — production setups would scale the cluster instead.
 
 At the `spark-sql>` prompt:
 
