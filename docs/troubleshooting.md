@@ -117,20 +117,52 @@ docker exec user-behavior-analytics-localstack-1 \
 - `FileNotFoundException` when downloading Maven packages
 - `Permission denied` errors pointing to `/tmp/ivy2` or `/root/.ivy2`
 
-**Cause:** The `ivy2-cache` Docker volume was created by root, but Spark containers run as user `spark` (uid 185).
+**Cause:** The `ivy2-cache` Docker volume is shared by multiple uids: Spark containers run as user `spark` (uid 185), and -- since Architecture B -- the Airflow container also writes to this cache as user `airflow` (uid 50000). A volume initialised by one uid can be unreadable by the other.
 
-**Fix:**
+**Fix (automated):** The `ivy2-cache-init` service in `docker-compose.yml` is a one-shot helper that runs on every `docker compose up` and `chmod -R 777 /tmp/ivy2` on the shared volume. Services that depend on the cache (`spark-master`, `spark-worker`, `streaming-job`, `airflow`) all wait for this service to exit successfully via `depends_on.condition: service_completed_successfully`, so fresh clones never hit the permission issue.
+
+**Manual fallback (only if the automated fix somehow fails):**
 ```bash
-# Fix permissions on the ivy2-cache volume
 docker run --rm -v user-behavior-analytics_ivy2-cache:/tmp/ivy2 --user root \
-  spark:3.5.3-scala2.12-java17-python3-ubuntu \
-  bash -c "chown -R 185:185 /tmp/ivy2 && chmod -R 777 /tmp/ivy2"
+  busybox:1.36 \
+  sh -c "chmod -R 777 /tmp/ivy2"
 
-# Restart the streaming job
-docker compose restart streaming-job
+docker compose restart streaming-job airflow
 ```
 
-The `spark-submit` command uses `--conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2` to redirect Ivy to the writable volume.
+The `spark-submit` command uses `--conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2` to redirect Ivy to the shared volume (used by both `streaming-job` via `docker-compose.yml` and the Airflow batch DAG via `dags/clickstream_batch_dag.py`).
+
+### Problem: Airflow cannot access the Docker socket (Linux hosts)
+
+**Symptoms (Linux only):**
+- `clickstream_streaming_supervisor` fails at `restart_streaming_container` with `Got permission denied while trying to connect to the Docker daemon socket`.
+- `curl --unix-socket /var/run/docker.sock http://localhost/version` from inside the Airflow container returns `403`.
+
+**Cause:** On Linux hosts, `/var/run/docker.sock` is owned by `root:docker` with mode `0660`. The Airflow image adds the `airflow` user to a `docker` group with **gid 999** (the conventional value on Debian/Ubuntu). If your host's `docker` group uses a different gid (e.g. 998 on some distros, higher on RHEL/CentOS), the socket is unreadable from inside the container even though the user is "in the docker group" nominally.
+
+**Fix:** Override the group on the Airflow service with `group_add` so the container picks up the host's gid:
+
+```bash
+# Discover your host's docker gid first
+getent group docker | cut -d: -f3
+```
+
+```yaml
+# docker-compose.yml, airflow service
+airflow:
+  build: ./docker/airflow
+  group_add:
+    - "${HOST_DOCKER_GID:-999}"
+  # ...
+```
+
+Then `docker compose up -d airflow` (recreate) and verify:
+
+```bash
+docker compose exec airflow curl -sf --unix-socket /var/run/docker.sock http://localhost/version
+```
+
+On **macOS Docker Desktop** this issue does not occur because the socket is proxied through a VM; no override is needed.
 
 ### Problem: Spark worker can't create directories
 
