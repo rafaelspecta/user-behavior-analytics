@@ -2,12 +2,18 @@
 Pipeline Health Monitoring DAG
 
 Checks the health of the running data pipeline infrastructure:
-  - Kafka: verifies topic exists via Kafdrop API
-  - Spark Streaming: verifies active application via Spark Master REST API
-  - S3 Data Lake: verifies Delta Lake files exist in LocalStack S3
+  - Kafka:    verifies the clickstream-events topic is reachable via Kafdrop
+  - S3 Lake:  verifies Delta Lake files exist in LocalStack S3
 
-Runs every 5 minutes with a 10-minute delayed start to allow services
-to initialise after docker compose up.
+Runs every 5 minutes with a 10-minute delayed start to allow services to
+initialise after `docker compose up`.
+
+Spark streaming health is intentionally NOT checked here. That responsibility
+lives in the `clickstream_streaming_supervisor` DAG (Architecture B), which
+both checks the Spark Master REST API and restarts the streaming-job
+container via the Docker Engine API when the application has died. Keeping
+health monitoring split this way avoids duplicated checks running on the
+same 5-minute schedule.
 """
 
 from datetime import datetime, timedelta
@@ -25,7 +31,7 @@ default_args = {
 dag = DAG(
     "pipeline_health_monitor",
     default_args=default_args,
-    description="Checks health of Kafka, Spark, and S3 pipeline components",
+    description="Checks health of Kafka and S3 pipeline components",
     schedule="*/5 * * * *",
     start_date=datetime(2026, 4, 14, 0, 10, 0),
     catchup=False,
@@ -39,23 +45,6 @@ check_kafka = BashOperator(
         'echo "Checking Kafka topics via Kafdrop..." && '
         "curl -sf http://kafdrop:9000/topic/clickstream-events "
         '|| echo "WARNING: Kafdrop not reachable (may still be starting)"'
-    ),
-    dag=dag,
-)
-
-check_streaming = BashOperator(
-    task_id="check_streaming_job",
-    bash_command=(
-        'echo "Checking Spark Master for active applications..." && '
-        "curl -sf http://spark-master:8080/json/ "
-        "| python3 -c \""
-        "import sys, json; "
-        "data = json.load(sys.stdin); "
-        "apps = data.get('activeapps', []); "
-        "print(f'Active apps: {len(apps)}'); "
-        "[print(f'  - {a[\\\"name\\\"]} (state: {a[\\\"state\\\"]})') for a in apps]; "
-        "sys.exit(0 if apps else 1)\" "
-        '|| echo "WARNING: No active Spark apps (streaming job may still be starting)"'
     ),
     dag=dag,
 )
@@ -77,4 +66,4 @@ check_s3 = BashOperator(
     dag=dag,
 )
 
-check_kafka >> check_streaming >> check_s3
+check_kafka >> check_s3
