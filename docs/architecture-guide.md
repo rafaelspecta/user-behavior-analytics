@@ -51,6 +51,8 @@ graph TB
     end
 ```
 
+
+
 ---
 
 ## Orchestration Architectures
@@ -72,11 +74,11 @@ graph TB
 **Trade-offs:**
 
 
-| Advantage                           | Disadvantage                                             |
-| ----------------------------------- | -------------------------------------------------------- |
-| Simplest to set up                  | No centralized orchestration                             |
-| Low latency                         | Batch jobs must be triggered manually                    |
-| Streaming survives Airflow downtime | Less visibility into pipeline health from a single UI    |
+| Advantage                           | Disadvantage                                              |
+| ----------------------------------- | --------------------------------------------------------- |
+| Simplest to set up                  | No centralized orchestration                              |
+| Low latency                         | Batch jobs must be triggered manually                     |
+| Streaming survives Airflow downtime | Less visibility into pipeline health from a single UI     |
 | No custom Airflow image needed      | Streaming job restart requires manual Docker intervention |
 
 
@@ -106,12 +108,12 @@ This is what the industry commonly calls the "recommended for production" patter
 **Trade-offs:**
 
 
-| Advantage                                            | Disadvantage                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------------- |
-| Centralized batch orchestration with task history    | Custom Airflow image (Java 17 + Spark 3.5.3) required         |
-| Streaming survives Airflow outages                   | Docker socket must be bind-mounted into the Airflow container |
-| Automatic streaming recovery via supervision DAG     | Two systems to monitor (Docker + Airflow)                     |
-| `spark-submit` from Airflow reuses the shared ivy2 cache | —                                                         |
+| Advantage                                                | Disadvantage                                                  |
+| -------------------------------------------------------- | ------------------------------------------------------------- |
+| Centralized batch orchestration with task history        | Custom Airflow image (Java 17 + Spark 3.5.3) required         |
+| Streaming survives Airflow outages                       | Docker socket must be bind-mounted into the Airflow container |
+| Automatic streaming recovery via supervision DAG         | Two systems to monitor (Docker + Airflow)                     |
+| `spark-submit` from Airflow reuses the shared ivy2 cache | —                                                             |
 
 
 **Configuration:** `docker compose --profile airflow-orchestrated up -d`. See [infrastructure.md](infrastructure.md) for the custom image and DAG details.
@@ -144,6 +146,8 @@ graph TD
     K -->|sensor polls| KS
 ```
 
+
+
 **How it works:**
 
 - An Airflow KafkaSensor watches the Kafka topic for new messages.
@@ -165,11 +169,11 @@ graph TD
 Orthogonal to the orchestration pattern, the **storage format** can also be swapped.
 
 
-| Scenario       | Storage Format | Query Engine            | Status      |
-| -------------- | -------------- | ----------------------- | ----------- |
-| **Scenario 1** | Delta Lake     | Spark / `spark-sql`     | **Working** |
-| **Scenario 2** | Delta Lake     | Trino + dbt             | Deferred    |
-| **Scenario 3** | Hudi           | Spark                   | Deferred    |
+| Scenario       | Storage Format | Query Engine        | Status      |
+| -------------- | -------------- | ------------------- | ----------- |
+| **Scenario 1** | Delta Lake     | Spark / `spark-sql` | **Working** |
+| **Scenario 2** | Delta Lake     | Trino + dbt         | Deferred    |
+| **Scenario 3** | Hudi           | Spark               | Deferred    |
 
 
 These can be combined with any orchestration architecture above. For example:
@@ -185,12 +189,12 @@ These can be combined with any orchestration architecture above. For example:
 Docker Compose profiles control which services come up. Core infrastructure (Kafka, Spark, LocalStack, Postgres, etc.) always starts; profile selection decides whether the data pipeline containers and/or Airflow also start.
 
 
-| Architecture                    | Command                                                 |
-| ------------------------------- | ------------------------------------------------------- |
-| **A (Streaming-First)**         | `docker compose --profile streaming-first up -d`        |
-| **B (Hybrid with Airflow)**     | `docker compose --profile airflow-orchestrated up -d`   |
-| A + B simultaneously            | `docker compose --profile streaming-first --profile airflow-orchestrated up -d` |
-| Core infrastructure only        | `docker compose up -d`                                  |
+| Architecture                | Command                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| **A (Streaming-First)**     | `docker compose --profile streaming-first up -d`                                |
+| **B (Hybrid with Airflow)** | `docker compose --profile airflow-orchestrated up -d`                           |
+| A + B simultaneously        | `docker compose --profile streaming-first --profile airflow-orchestrated up -d` |
+| Core infrastructure only    | `docker compose up -d`                                                          |
 
 
 Running both profiles together is safe: `streaming-job` and `producer` are defined under both profiles so Docker Compose only instantiates them once, and the supervisor DAG sees the healthy app and never triggers a restart.
@@ -227,6 +231,8 @@ graph TD
     end
 ```
 
+
+
 ---
 
 ## Related Documentation
@@ -235,3 +241,4 @@ graph TD
 - [data-flow.md](data-flow.md) — Medallion layers, write paths, and inspection commands.
 - [troubleshooting.md](troubleshooting.md) — Common gotchas (ivy2-cache permissions, Docker socket on Linux hosts).
 - [roadmap.md](roadmap.md) — Deferred items, implementation specs, and future vision.
+
