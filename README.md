@@ -95,6 +95,18 @@ cd user-behavior-analytics
 
 No Python virtualenv is required -- everything runs in containers.
 
+### Switching between architectures (important)
+
+Docker Compose's `up` command is additive: if you run `--profile streaming-first up` and then later `--profile airflow-orchestrated up`, that's fine (B is a superset of A, so Compose just adds the `airflow` container). But the other direction (`airflow-orchestrated` → `streaming-first`) silently leaves `airflow` running in the background, because `up` never removes containers by itself.
+
+To guarantee a clean switch between architectures, always run:
+
+```bash
+docker compose down --remove-orphans
+```
+
+before starting a different profile. The `--remove-orphans` flag tears down any container from this compose project that is not selected by the new profile. It's a ~1-10 second operation that will NOT rebuild any images -- the custom Airflow and producer images stay cached and are reused on the next `up`. The "Start" blocks below prepend this step so copy-paste is always safe.
+
 ---
 
 ## Architecture A — Streaming-First
@@ -102,6 +114,7 @@ No Python virtualenv is required -- everything runs in containers.
 ### Start
 
 ```bash
+docker compose down --remove-orphans
 docker compose --profile streaming-first up -d
 ```
 
@@ -245,6 +258,7 @@ Everything from Architecture A is still true here -- the same `producer` and `st
 ### Start
 
 ```bash
+docker compose down --remove-orphans
 docker compose --profile airflow-orchestrated up -d
 ```
 
