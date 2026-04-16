@@ -99,12 +99,14 @@ No Python virtualenv is required -- everything runs in containers.
 
 This project is intended to run on **Linux, macOS (Intel and Apple Silicon), and Windows 10/11**. Concretely:
 
-| Host | Supported | How |
-| --- | --- | --- |
-| Linux x86_64 / arm64 | Yes | Docker Engine + Compose v2 |
-| macOS Intel | Yes | Docker Desktop |
-| macOS Apple Silicon (arm64) | Yes | Docker Desktop — all images resolve to native arm64 variants, no QEMU emulation |
-| Windows 10/11 | Yes | Docker Desktop with the **WSL2 backend** (run all commands from inside a WSL2 distro such as Ubuntu) |
+
+| Host                        | Supported | How                                                                                                  |
+| --------------------------- | --------- | ---------------------------------------------------------------------------------------------------- |
+| Linux x86_64 / arm64        | Yes       | Docker Engine + Compose v2                                                                           |
+| macOS Intel                 | Yes       | Docker Desktop                                                                                       |
+| macOS Apple Silicon (arm64) | Yes       | Docker Desktop — all images resolve to native arm64 variants, no QEMU emulation                      |
+| Windows 10/11               | Yes       | Docker Desktop with the **WSL2 backend** (run all commands from inside a WSL2 distro such as Ubuntu) |
+
 
 All commands below assume a POSIX shell and Compose v2 (`docker compose`, not `docker-compose`).
 
@@ -135,6 +137,8 @@ docker compose --profile streaming-first up -d
 
 This brings up the core infrastructure (Zookeeper, Kafka, Kafdrop, Spark master/worker, LocalStack, Postgres, `ivy2-cache-init`) plus the pipeline workers (`producer`, `streaming-job`). First-time startup downloads Maven dependencies for Spark (~200 MB into the `ivy2-cache` volume) and can take 3-5 minutes on a warm Docker Desktop. Subsequent starts are fast.
 
+**You don't need to start anything manually.** The `producer` container begins emitting synthetic clickstream events to Kafka roughly 1 per second as soon as `kafka-init` has created the topics, and `streaming-job` starts consuming them as soon as Spark + LocalStack are ready. Everything from here on is observation.
+
 Wait for healthchecks to settle, then check status:
 
 ```bash
@@ -149,17 +153,43 @@ Follow these steps from "event arriving in Kafka" all the way to "aggregated row
 
 #### 1. Watch events arriving on Kafka via Kafdrop
 
-Open [http://localhost:9033](http://localhost:9033):
+Kafdrop is the Kafka Web UI. Open [http://localhost:9033](http://localhost:9033). What you see on the landing page is just the cluster summary (topics, brokers) — you have to click into the topic to actually see events. The walk-through below gets you from "is it working?" to seeing the raw JSON bodies.
 
-- **Topics** → `clickstream-events` (3 partitions)
-- Click the topic, then **View Messages** on any partition to see raw JSON events landing in near-real-time
-- The dead-letter topic `clickstream-errors` should stay empty during normal runs
+**A. Click into the topic.** Under **Topics**, click `clickstream-events`. You land on the topic detail page at `http://localhost:9033/topic/clickstream-events`.
 
-You can also tail the producer container directly:
+**B. Read the partitions table — this is how you know it's working.** You'll see a table with one row per partition (0, 1, 2):
+
+| Column              | What it means                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Partition**       | Partition id. A Kafka topic is split into N independent, ordered logs; here N=3, so events are striped across 3 sub-logs.     |
+| **First Offset**    | Oldest retained offset (usually 0 while nothing has been deleted by retention).                                               |
+| **Last Offset**     | Next offset to be written. Grows by ~1 every time the producer writes to this partition.                                      |
+| **Size**            | Number of messages currently in this partition = `Last Offset - First Offset`. **This is the "event count" you were looking for.** |
+| **Leader / Preferred Leader** | Broker id serving this partition. `1` for all three, because we run a single broker.                                |
+
+Refresh the page. The **Last Offset** and **Size** columns should tick up every second or two, with writes spread fairly evenly across the three partitions. That is the direct evidence that events are flowing: producer → Kafka.
+
+> **Quick aside on partitions:** partitions are Kafka's unit of parallelism. With 3 partitions, up to 3 consumers (or 3 Spark tasks) can read from this topic in parallel, and ordering is guaranteed *within* a partition but not across them. For a learning stack, 3 is enough to make parallelism visible without being wasteful.
+
+**C. Browse the raw JSON bodies.** On the topic detail page, click **View Messages** (top right). Pick a partition (e.g. `0`), leave **Offset** at `0` and **Message Count** at the default, then click **View Messages**. You'll see the actual JSON events the producer is emitting — something like:
+
+```json
+{"event_id": "…-…-…", "timestamp": "2026-04-16T…", "user_id": "u_1234", "event_type": "product_view", "product_id": "headphones", "device_type": "mobile", …}
+```
+
+**D. Sanity-check the dead-letter topic.** Go back to the topic list. `clickstream-errors` should exist but have `Size = 0` on every partition. If it starts growing, the streaming job rejected messages as malformed — check `docker compose logs streaming-job` for parse errors.
+
+**Prefer the CLI?** Two alternatives that show the same information:
 
 ```bash
 docker compose logs producer --tail 10 --follow
+
+docker exec user-behavior-analytics-kafka-1 \
+  kafka-run-class kafka.tools.GetOffsetShell \
+    --broker-list localhost:9092 --topic clickstream-events
 ```
+
+The second command prints one line per partition in the form `clickstream-events:<partition>:<offset>`. Run it twice a few seconds apart; the offsets should grow.
 
 #### 2. See Spark Structured Streaming at work
 
