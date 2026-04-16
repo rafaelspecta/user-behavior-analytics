@@ -56,9 +56,19 @@ dag = DAG(
     tags=["architecture-b", "batch", "gold"],
 )
 
-# The --conf spark.driver.extraJavaOptions redirects Ivy's local cache to the
-# shared /tmp/ivy2 volume (ivy2-cache docker volume). Without it, the driver
-# re-downloads ~200MB of Maven JARs on every run.
+# Config notes:
+#
+# --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2
+#   Redirects Ivy's local cache to the shared /tmp/ivy2 volume (ivy2-cache
+#   docker volume). Without it, the driver re-downloads ~200MB of Maven JARs
+#   on every run.
+#
+# --conf spark.cores.max=1 --conf spark.executor.memory=512m
+#   The Spark worker has 2 cores / 2G RAM. The streaming app is capped at
+#   1 core so it never consumes the whole cluster; this batch submit is
+#   capped the same way so it can always grab the remaining core alongside
+#   streaming. Without these caps, if the batch app started before streaming
+#   it would grab both cores and leave streaming unable to register.
 run_batch_job = BashOperator(
     task_id="run_batch_job",
     bash_command=f"""
@@ -68,6 +78,8 @@ spark-submit \
     --master {SPARK_MASTER} \
     --name ClickstreamBatch \
     --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 \
+    --conf spark.cores.max=1 \
+    --conf spark.executor.memory=512m \
     --packages {SPARK_PACKAGES} \
     {BATCH_JOB_PATH}
 """,

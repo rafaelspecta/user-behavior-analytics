@@ -80,8 +80,14 @@ services:
     image: spark:3.5.3-scala2.12-java17-python3-ubuntu
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     environment:
-      - SPARK_WORKER_MEMORY=1G
-      - SPARK_WORKER_CORES=1
+      # 2 cores + 2G RAM so streaming and batch can co-exist on the cluster.
+      # With only 1 core, the long-lived streaming app holds it forever and any
+      # batch spark-submit waits indefinitely with:
+      #   WARN TaskSchedulerImpl: Initial job has not accepted any resources
+      # Streaming is capped at 1 core via spark.cores.max=1 on its submit so
+      # the second core is always available for ad-hoc batch runs.
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
       # Port alignment: same port inside the container and on the host
       # so that SPARK_PUBLIC_DNS=localhost produces a usable URL
       # (http://localhost:8083) in the Spark Master UI's Workers list.
@@ -105,7 +111,12 @@ services:
     # the same way, with Airflow supervising via clickstream_streaming_supervisor.
     profiles: [streaming-first, airflow-orchestrated]
     image: spark:3.5.3-scala2.12-java17-python3-ubuntu
-    command: ["bash", "-c", "echo 'Waiting for S3 buckets...' && until curl -sf http://localstack:4566/_localstack/init/ready | grep -q SUCCESSFUL; do echo 'Init scripts not done yet...' && sleep 5; done && echo 'S3 buckets ready, starting streaming job...' && /opt/spark/bin/spark-submit --master spark://spark-master:7077 --name ClickstreamStreaming --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 /opt/spark/app/src/streaming/streaming_job.py"]
+    # Resource caps on the streaming submit:
+    # - spark.cores.max=1       so streaming holds exactly 1 of the worker's
+    #                           2 cores, leaving the other free for batch.
+    # - spark.executor.memory=512m  keeps two executors (streaming + batch)
+    #                           fitting comfortably inside the 2G worker.
+    command: ["bash", "-c", "echo 'Waiting for S3 buckets...' && until curl -sf http://localstack:4566/_localstack/init/ready | grep -q SUCCESSFUL; do echo 'Init scripts not done yet...' && sleep 5; done && echo 'S3 buckets ready, starting streaming job...' && /opt/spark/bin/spark-submit --master spark://spark-master:7077 --name ClickstreamStreaming --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 --conf spark.cores.max=1 --conf spark.executor.memory=512m --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 /opt/spark/app/src/streaming/streaming_job.py"]
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - S3_ENDPOINT=http://localstack:4566

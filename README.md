@@ -28,14 +28,14 @@ This README is the practical operations guide. For architecture deep-dives see `
 ### Web UIs
 
 
-| Service                   | URL                                            | Available under        | Credentials       |
-| ------------------------- | ---------------------------------------------- | ---------------------- | ----------------- |
-| Kafdrop                   | [http://localhost:9033](http://localhost:9033) | A + B                  | —                 |
-| Spark Master              | [http://localhost:8080](http://localhost:8080) | A + B                  | —                 |
-| Spark Worker              | [http://localhost:8083](http://localhost:8083) | A + B                  | —                 |
-| Spark Driver (app UI)     | [http://localhost:4040](http://localhost:4040) | A + B                  | —                 |
-| Airflow                   | [http://localhost:8081](http://localhost:8081) | B only                 | No login required |
-| Trino                     | [http://localhost:8082](http://localhost:8082) | `--profile trino` only | —                 |
+| Service               | URL                                            | Available under        | Credentials       |
+| --------------------- | ---------------------------------------------- | ---------------------- | ----------------- |
+| Kafdrop               | [http://localhost:9033](http://localhost:9033) | A + B                  | —                 |
+| Spark Master          | [http://localhost:8080](http://localhost:8080) | A + B                  | —                 |
+| Spark Worker          | [http://localhost:8083](http://localhost:8083) | A + B                  | —                 |
+| Spark Driver (app UI) | [http://localhost:4040](http://localhost:4040) | A + B                  | —                 |
+| Airflow               | [http://localhost:8081](http://localhost:8081) | B only                 | No login required |
+| Trino                 | [http://localhost:8082](http://localhost:8082) | `--profile trino` only | —                 |
 
 
 > All three Spark UIs cross-link to each other (worker row on the Master, app-name link on the Master, "Back to Master" buttons). This works because every Spark container is started with `SPARK_PUBLIC_DNS=localhost`, which makes Spark rewrite generated URLs to use `localhost` instead of the container's internal hostname. If you add a new Spark service to `docker-compose.yml`, set the same env var and expose a matching host port to preserve this.
@@ -219,16 +219,18 @@ The second command prints one line per partition in the form `clickstream-events
 
 Spark actually exposes three related UIs; each serves a different purpose:
 
-| UI | URL | What it shows |
-| --- | --- | --- |
-| **Master** | [http://localhost:8080](http://localhost:8080) | Cluster state: registered workers, running apps, completed apps. Entry point. |
-| **Worker** | [http://localhost:8083](http://localhost:8083) | The worker process: running executors on this worker, their logs, RAM usage. |
+
+| UI                   | URL                                            | What it shows                                                                                                                                                                                     |
+| -------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Master**           | [http://localhost:8080](http://localhost:8080) | Cluster state: registered workers, running apps, completed apps. Entry point.                                                                                                                     |
+| **Worker**           | [http://localhost:8083](http://localhost:8083) | The worker process: running executors on this worker, their logs, RAM usage.                                                                                                                      |
 | **Driver (per-app)** | [http://localhost:4040](http://localhost:4040) | The application's own UI: **Jobs**, **Stages**, **Executors**, and — most interesting for us — the **Structured Streaming** tab with input/processed rows, batch duration, and per-batch offsets. |
+
 
 Start at the **Master UI** ([http://localhost:8080](http://localhost:8080)). Two sections matter:
 
-- **Workers** — should list one worker with `State = ALIVE`, `Cores = 1 (1 Used)`, and `Memory` showing a non-zero "Used" figure. **If Cores shows `1 (0 Used)`, the streaming driver is not attached to the cluster** — see "Troubleshooting" below. Click the worker row and you'll land on the Worker UI at `http://localhost:8083`.
-- **Running Applications** — should list a single app named `ClickstreamStreaming` in state `RUNNING`. Click the app name to reach the Driver UI at `http://localhost:4040`.
+- **Workers** — should list one worker with `State = ALIVE`, `Cores = 2 (1 Used)` (streaming is capped at 1 core so the second stays free for batch), and `Memory` showing a non-zero "Used" figure. **If Cores shows `2 (0 Used)`, the streaming driver is not attached to the cluster** — see "Troubleshooting" below. Click the worker row and you'll land on the Worker UI at `http://localhost:8083`.
+- **Running Applications** — should list a single app named `ClickstreamStreaming` in state `RUNNING` holding 1 core. Click the app name to reach the Driver UI at `http://localhost:4040`. When you run the batch job in step 5, a second app `ClickstreamBatch` will briefly appear here and take the other core.
 
 > All three UIs cross-link correctly thanks to `SPARK_PUBLIC_DNS=localhost`. If for some reason you get redirected to an internal Docker hostname (`<random-container-id>:<port>`), the env var didn't take effect — restart the affected service.
 
@@ -304,14 +306,21 @@ Exit with `quit;` (or Ctrl+D). When Scenario 2 (Trino + dbt) ships, the same tab
 
 #### 5. Run the batch aggregation (Silver → Gold)
 
+This is a real cluster submit — the batch job runs on the Spark Standalone cluster alongside `ClickstreamStreaming`. Open [http://localhost:8080](http://localhost:8080) in another tab while the command runs and you'll see a second entry appear under **Running Applications** (`ClickstreamBatch`) with its own core and executor, proving that the cluster is happily scheduling two apps at once.
+
 ```bash
 docker compose exec spark-master \
   /opt/spark/bin/spark-submit \
     --master spark://spark-master:7077 \
+    --name ClickstreamBatch \
     --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 \
+    --conf spark.cores.max=1 \
+    --conf spark.executor.memory=512m \
     --packages io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
     /opt/spark/app/src/batch/batch_job.py
 ```
+
+> **Why the `spark.cores.max=1` and `spark.executor.memory=512m` caps?** The worker has **2 cores / 2G RAM**. Streaming already holds 1 core (also capped at 1 via `spark.cores.max=1` in its submit). Without these caps the batch app would try to grab every remaining core and all free RAM, and on a fresh start it could starve streaming. Capping both apps at 1 core + 512m executor guarantees they always fit together. If you skip the caps and see `WARN TaskSchedulerImpl: Initial job has not accepted any resources`, it means the batch job is waiting for cores that streaming is holding — the caps are what prevent that.
 
 This produces two Gold-layer tables:
 
