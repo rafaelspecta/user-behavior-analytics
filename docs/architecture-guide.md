@@ -238,7 +238,8 @@ graph TD
 ## Related Documentation
 
 - [infrastructure.md](infrastructure.md) — Service-by-service reference, including the custom Airflow image and the new DAGs.
-- [data-flow.md](data-flow.md) — Medallion layers, write paths, and inspection commands.
+- [data-flow.md](data-flow.md) — Pipeline journey: producer, Kafka, streaming, Silver, batch, Gold; inspection commands at each stage.
+- [data-storage.md](data-storage.md) — Storage at rest: S3 bucket layout, S3A configuration, Delta Lake features, and the full Spark SQL → Delta → Parquet → S3A → S3 storage stack.
 - [troubleshooting.md](troubleshooting.md) — Common gotchas (ivy2-cache permissions, Docker socket on Linux hosts).
 - [roadmap.md](roadmap.md) — Deferred items, implementation specs, and future vision.
 

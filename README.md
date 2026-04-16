@@ -64,7 +64,8 @@ This README is the practical operations guide. For architecture deep-dives see `
 ├── docs/                              Documentation
 │   ├── architecture-guide.md            All architectures, trade-offs, switching
 │   ├── infrastructure.md                Service-by-service reference
-│   ├── data-flow.md                     Medallion layers, inspection commands
+│   ├── data-flow.md                     Pipeline journey: stages, transformations, inspection commands
+│   ├── data-storage.md                  Storage at rest: bucket layout, Delta/Parquet/S3A/S3 stack
 │   ├── roadmap.md                       Deferred work and future vision
 │   └── troubleshooting.md               Common gotchas and fixes
 ├── docker-compose.yml                 All service definitions (with profiles)
@@ -447,7 +448,8 @@ After `down -v` the next `up` will re-run all init scripts (Kafka topics, S3 buc
 
 - `[docs/architecture-guide.md](docs/architecture-guide.md)` — A vs B comparison, B-alt (why full Airflow submission is not possible on Spark Standalone), event-driven future, and the profile-to-service mapping.
 - `[docs/infrastructure.md](docs/infrastructure.md)` — Service-by-service reference (image, ports, volumes, depends_on, the custom Airflow image, and per-DAG diagrams).
-- `[docs/data-flow.md](docs/data-flow.md)` — Medallion layers, write paths, and inspection commands.
+- `[docs/data-flow.md](docs/data-flow.md)` — Pipeline journey: producer, Kafka, streaming, Silver, batch, Gold; inspection commands at each stage.
+- `[docs/data-storage.md](docs/data-storage.md)` — How the data sits at rest: S3 bucket layout, S3A configuration, Delta Lake features, and the full Spark SQL → Delta → Parquet → S3A → S3 storage stack.
 - `[docs/troubleshooting.md](docs/troubleshooting.md)` — Ivy cache permissions, Docker socket on Linux hosts, QEMU startup, etc.
 - `[docs/roadmap.md](docs/roadmap.md)` — Deferred work (Trino + dbt, Hudi, Redshift sync) and the implementation priority.
 
