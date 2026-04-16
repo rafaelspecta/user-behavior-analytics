@@ -4,6 +4,22 @@ This project is designed as a **Data Architecture Playground** where different o
 
 ---
 
+## Table of Contents
+
+- [Current State](#current-state)
+- [Architecture A vs B — what changes](#architecture-a-vs-b--what-changes)
+- [Orchestration Architectures](#orchestration-architectures)
+  - [Architecture A: Streaming-First](#architecture-a-streaming-first)
+  - [Architecture B: Hybrid with Airflow](#architecture-b-hybrid-with-airflow)
+  - [Architecture B-alt: Full Airflow Submission (not runnable on Spark Standalone)](#architecture-b-alt-full-airflow-submission-not-runnable-on-spark-standalone)
+  - [Architecture D: Event-Driven (Kafka-Triggered)](#architecture-d-event-driven-kafka-triggered)
+- [Storage Format Architectures](#storage-format-architectures)
+- [How to Switch Architectures](#how-to-switch-architectures)
+  - [Profile-to-service mapping](#profile-to-service-mapping)
+- [Related Documentation](#related-documentation)
+
+---
+
 ## Current State
 
 Two orchestration architectures are runnable today via Docker Compose profiles:

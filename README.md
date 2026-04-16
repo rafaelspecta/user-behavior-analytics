@@ -6,6 +6,31 @@ This README is the practical operations guide. For architecture deep-dives see `
 
 ---
 
+## Table of Contents
+
+- [Quick reference](#quick-reference)
+  - [Tech stack](#tech-stack)
+  - [Web UIs](#web-uis)
+  - [Project structure](#project-structure)
+- [Architecture overview](#architecture-overview)
+- [Prerequisites](#prerequisites)
+  - [Cross-platform support](#cross-platform-support)
+  - [Switching between architectures (important)](#switching-between-architectures-important)
+  - [Reset state (clean slate)](#reset-state-clean-slate)
+- [Architecture A — Streaming-First](#architecture-a--streaming-first)
+  - [Start](#start)
+  - [Step-by-step pipeline exploration](#step-by-step-pipeline-exploration)
+  - [Stop](#stop)
+- [Architecture B — Hybrid with Airflow](#architecture-b--hybrid-with-airflow)
+  - [Start](#start-1)
+  - [Step-by-step pipeline exploration](#step-by-step-pipeline-exploration-1)
+  - [Stop](#stop-1)
+- [Reset / clean slate](#reset--clean-slate)
+- [Further reading](#further-reading)
+- [License](#license)
+
+---
+
 ## Quick reference
 
 ### Tech stack

@@ -2,6 +2,28 @@
 
 This document describes every Docker service, how they connect, and how they're configured.
 
+## Table of Contents
+
+- [Service Overview](#service-overview)
+- [Services](#services)
+  - [Zookeeper](#zookeeper)
+  - [Kafka](#kafka)
+  - [kafka-init](#kafka-init)
+  - [Kafdrop](#kafdrop)
+  - [Spark Master](#spark-master)
+  - [Spark Worker](#spark-worker)
+  - [streaming-job](#streaming-job)
+  - [Producer](#producer)
+  - [Airflow](#airflow)
+  - [PostgreSQL](#postgresql)
+  - [Trino](#trino)
+  - [LocalStack](#localstack)
+- [Startup Dependencies](#startup-dependencies)
+- [Volumes](#volumes)
+- [Network](#network)
+- [Web UIs](#web-uis)
+- [Environment Variable Reference](#environment-variable-reference)
+
 ## Service Overview
 
 ```
