@@ -12,6 +12,8 @@
   - [Spark Thrift Server](#spark-thrift-server)
   - [dbt Integration](#dbt-integration)
   - [Hudi Storage Format](#hudi-storage-format)
+  - [BI / Dashboard Layer (Metabase)](#bi--dashboard-layer-metabase)
+  - [Data Governance & Lineage (OpenLineage)](#data-governance--lineage-openlineage)
   - [Docker Compose Profiles ✓ Done](#docker-compose-profiles--done)
   - [Custom Airflow Image ✓ Done](#custom-airflow-image--done)
   - [Airflow-Orchestrated Spark (Architecture B DAGs) ✓ Done as Hybrid](#airflow-orchestrated-spark-architecture-b-dags--done-as-hybrid)
@@ -69,6 +71,8 @@ Items not covered by the current implementation, organized by category.
 | Spark Thrift Server             | Scenario 2     | Not deployed as Docker service                                  | Medium | Deferred          |
 | dbt integration                 | Scenario 2     | Thrift Server missing, `profiles.yml` broken, dbt not installed | High   | Deferred          |
 | Hudi storage format             | Scenario 3     | Code commented out, Hudi JARs not configured                    | Medium | Deferred          |
+| BI / Dashboard layer (Metabase) | Presentation   | Needs Trino catalog or Spark Thrift Server (Scenario 2)         | Medium | Deferred          |
+| Data governance (OpenLineage)   | Governance     | Cross-cutting; most value once Scenario 2 is in place           | High   | Deferred          |
 | Docker Compose profiles         | Infrastructure | -                                                               | Medium | **Done**          |
 | Custom Airflow image            | Infrastructure | -                                                               | High   | **Done**          |
 | Airflow-orchestrated Spark      | Infrastructure | PySpark/Standalone `--deploy-mode cluster` limit (see below)    | High   | **Done (Hybrid)** |
@@ -172,6 +176,42 @@ spark-thrift:
 - Create a separate S3 bucket for Hudi data (or use a path prefix)
 - Adjust batch job to read from Hudi tables
 - Test Hudi timeline and compaction features
+
+### BI / Dashboard Layer (Metabase)
+
+**Category:** Presentation
+**Current state:** No visualization layer. Gold tables are only reachable via low-level tools (`spark-sql` today, Trino/dbt once Scenario 2 lands). Students cannot see the "chart someone would actually look at" that closes the classical analytics loop.
+**What's needed:**
+
+- Add a `metabase` service to `docker-compose.yml` under a new `bi` profile, with its own metadata Postgres (so Metabase doesn't share Airflow's DB).
+- Connect Metabase to the query engine. Two viable paths, in order of preference:
+  - **Path A (recommended):** Trino (Scenario 2). Metabase's Trino driver queries Delta directly -- no data duplication, and the same Gold tables that `spark-sql` and dbt use are served to the dashboard.
+  - **Path B:** Spark Thrift Server (Scenario 2 sub-item). Metabase's Spark SQL driver can target the Thrift endpoint on port 10000.
+- Seed a sample dashboard with the tables the batch job already produces: daily active users, purchase funnel, product performance by day.
+- Document a single `docker compose --profile airflow-orchestrated --profile trino --profile bi up -d` command that brings up the full Architecture B + Scenario 2 + BI stack.
+
+**Depends on:** Scenario 2 (Trino catalog or Spark Thrift Server). **Not** blocked by Redshift sync -- Metabase on Trino reads Delta directly, no warehouse copy is required.
+
+**Teaching value:** Closes the loop for the MIT class. Students follow one event from Producer -> Kafka -> Silver -> Gold -> a dashboard they can click through, which is the arc most data leaders actually care about.
+
+### Data Governance & Lineage (OpenLineage)
+
+**Category:** Governance / Observability
+**Current state:** No lineage tracking. Students cannot see how a Gold row traces back through Silver -> Bronze (Kafka) -> Producer, nor can they answer "which jobs touched this dataset?" or "what breaks if I change this schema?" -- exactly the questions a data leader needs to answer.
+**What's needed:**
+
+- Add a `marquez` service (OpenLineage reference backend + UI) to `docker-compose.yml` under a new `governance` profile. Marquez also needs its own metadata Postgres.
+- Wire **automatic** OpenLineage emission from every compute tool in the stack so lineage is captured without any code changes to the jobs themselves:
+  - **Spark** (streaming + batch): add the `openlineage-spark` listener jar to `spark.jars.packages` and set `spark.extraListeners=io.openlineage.spark.agent.OpenLineageSparkListener`, plus `spark.openlineage.transport.url=http://marquez:5000`.
+  - **Airflow**: install the `openlineage-airflow` (Airflow 3.x: `apache-airflow-providers-openlineage`) package in the custom Airflow image. DAG run + task lineage is emitted automatically for every provider that ships a lineage extractor (BashOperator with `spark-submit` is covered out of the box).
+  - **dbt** (once Scenario 2 lands): wrap invocations with `openlineage-dbt` (`dbt-ol run`) so model-to-model lineage shows up.
+  - **Trino** (once Scenario 2 lands): enable the Trino OpenLineage event listener plugin so query-level lineage is captured.
+- All producers point at `OPENLINEAGE_URL=http://marquez:5000`; Marquez UI exposed on a new host port so students watch the lineage graph update live as the pipeline runs.
+- Add a short exploration walkthrough to the README (the same step-by-step style as Kafdrop and Spark UI): "trigger the batch DAG, refresh Marquez, see the new run + datasets appear."
+
+**Depends on:** Nothing hard -- OpenLineage works against what is running today. But the **teaching value** multiplies once Scenario 2 is in place, because lineage only becomes visually compelling when there are multiple engines (Spark, dbt, Trino) touching the same datasets. Hence the positioning in the priority list after Scenario 2 and the BI layer.
+
+**Teaching value:** Lineage stops being an abstract slide. Students see every job, every dataset, every run -- in real time -- and can concretely answer audit, impact-analysis, and schema-change questions that are central to any data governance conversation.
 
 ### Docker Compose Profiles ✓ Done
 
@@ -326,7 +366,6 @@ These are additional architecture patterns that could be added to expand the pla
 | **Iceberg**                      | Apache Iceberg as an alternative lakehouse format         | Iceberg Spark runtime, Iceberg catalog                      |
 | **Flink instead of Spark**       | Replace Spark Streaming with Apache Flink                 | Flink JobManager, TaskManager, Flink SQL                    |
 | **Debezium CDC**                 | Change Data Capture from a relational database            | Debezium, Kafka Connect, source database (MySQL/Postgres)   |
-| **Real-time dashboards**         | Live dashboards on streaming data                         | Apache Superset or Metabase, connected to Trino             |
 | **Data mesh**                    | Multiple domain-specific pipelines sharing infrastructure | Multiple producers, domain-specific schemas, data contracts |
 | **Lakehouse with Unity Catalog** | Centralized governance and catalog                        | Unity Catalog (OSS), or Polaris catalog                     |
 | **Stream processing patterns**   | Windowing, joins, late data handling                      | Enhanced streaming jobs, watermarking                       |
@@ -347,20 +386,25 @@ graph TD
     Profiles --> CustomAirflow["Custom Airflow Image (DONE)"]
     CustomAirflow --> HybridB["Architecture B: Hybrid (DONE)"]
     HybridB --> S2["Scenario 2: Trino + dbt"]
+    S2 --> BI["BI / Dashboard Layer (Metabase)"]
     Profiles --> S3["Scenario 3: Hudi"]
-    S2 --> Dashboards["Real-time Dashboards (Superset/Metabase)"]
-    S3 --> Iceberg["Scenario: Iceberg"]
     Current --> Redshift["Redshift Sync"]
-    HybridB --> Flink["Scenario: Flink"]
-    Dashboards --> DataMesh["Scenario: Data Mesh"]
+    BI --> Lineage["Data Governance (OpenLineage)"]
+    S3 --> Lineage
+    Redshift --> Lineage
+    Lineage --> Iceberg["Scenario: Iceberg"]
+    Lineage --> Flink["Scenario: Flink"]
+    Lineage --> DataMesh["Scenario: Data Mesh"]
 ```
 
 
 
-The first three priorities have shipped (Profiles, Custom Airflow Image, Hybrid orchestration). Remaining priorities:
+The first three priorities have shipped (Profiles, Custom Airflow Image, Hybrid orchestration). Remaining priorities, in recommended order:
 
 1. **Scenario 2 (Trino + dbt)** -- most requested by data engineering students. Unlocks a real query layer over the Gold bucket and contrasts nicely with the current `spark-sql` direct-query experience described in the README.
-2. **Scenario 3 (Hudi)** -- introduces lakehouse format comparison.
-3. **Redshift sync** -- completes the classical EDW flow on top of Scenario 1.
-4. **Future scenarios** -- based on student interest and course curriculum.
+2. **BI / Dashboard Layer (Metabase)** -- closes the analytics loop for the MIT class: students see a Producer event land in a chart a data leader would actually open. Rides on top of Scenario 2 (Metabase -> Trino -> Delta), so no extra warehouse copy is required.
+3. **Scenario 3 (Hudi)** -- introduces lakehouse format comparison.
+4. **Redshift sync** -- completes the classical EDW flow on top of Scenario 1.
+5. **Data Governance & Lineage (OpenLineage)** -- cross-cutting. Applied *after* the previous priorities so there are multiple engines (Spark, dbt, Trino) for lineage to connect. Turns governance from slideware into a live, clickable graph.
+6. **Future scenarios** -- based on student interest and course curriculum.
 
