@@ -1,0 +1,63 @@
+scenarios:
+  - id: scenario-1
+    name: "Delta Lake + Spark"
+    description: >
+      Streaming-first pipeline with Delta Lake on S3.
+      Architecture A: streaming runs as Docker container.
+    profiles: [streaming-first]
+    compose_files: [docker-compose.yml]
+    env_file: .env.scenario-1
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+
+  - id: scenario-2
+    name: "Delta Lake + Trino + dbt"
+    description: >
+      Adds Trino SQL engine and Spark Thrift Server for querying Delta tables directly.
+      Enables SQL analytics. dbt deferred until custom Airflow image.
+    profiles: [streaming-first, trino]
+    compose_files:
+      - docker-compose.yml
+      - compose/scenario-2.yml
+    env_file: .env.scenario-2
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+      - trino
+      - spark-thrift
+
+  - id: scenario-3
+    name: "Hudi + Spark"
+    description: >
+      Lakehouse format comparison. Streaming writes to Hudi tables instead of Delta Lake.
+      Architecture A.
+    profiles: [streaming-first]
+    compose_files:
+      - docker-compose.yml
+      - compose/scenario-3.yml
+    env_file: .env.scenario-3
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres

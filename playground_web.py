@@ -1,0 +1,215 @@
+"""
+Data Architecture Playground — Scenario Switcher Web UI
+
+A FastAPI-based launcher for the Docker Compose scenarios.
+Students open http://localhost:8084, pick a scenario, and click Launch.
+
+Prerequisites:
+  - Docker Desktop with docker compose
+  - Python 3.10+ and pip install -r requirements-web.txt
+
+Usage:
+  python playground_web.py          # start the server
+  python playground_web.py --port 9000  # custom port
+"""
+
+import asyncio
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+import uvicorn
+import yaml
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+SCENARIOS_FILE = BASE_DIR / "scenarios.yml"
+DEFAULT_PORT = int(os.environ.get("PLAYGROUND_PORT", "8084"))
+
+# ---------------------------------------------------------------------------
+# Scenario model
+# ---------------------------------------------------------------------------
+
+
+class ScenarioModel(BaseModel):
+    id: str
+    name: str
+    description: str
+    profiles: List[str]
+    compose_files: List[str]
+    env_file: str = ""
+    services_expected: List[str] = []
+    color: str = "#38bdf8"
+
+
+# ---------------------------------------------------------------------------
+# Load scenarios
+# ---------------------------------------------------------------------------
+
+
+def _load_scenarios():
+    if not SCENARIOS_FILE.exists():
+        return []
+    with SCENARIOS_FILE.open() as f:
+        data = yaml.safe_load(f)
+    return [ScenarioModel(**s) for s in data.get("scenarios", [])]
+
+
+SCENARIOS: List[ScenarioModel] = _load_scenarios()
+active_scenario_id: Optional[str] = None
+
+# ---------------------------------------------------------------------------
+# Compose helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_cmd(scenario: ScenarioModel, action: str, extra: List[str] = None) -> List[str]:
+    """Build docker compose command for a scenario."""
+    cmd = ["docker", "compose"]
+    for cf in scenario.compose_files:
+        cmd += ["-f", cf]
+    if scenario.env_file and os.path.exists(scenario.env_file):
+        cmd += ["--env-file", scenario.env_file]
+    for profile in scenario.profiles:
+        cmd += ["--profile", profile]
+    cmd += [action]
+    if extra:
+        cmd += extra
+    return cmd
+
+
+# ---------------------------------------------------------------------------
+# FastAPI app
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="Data Architecture Playground")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "scenarios": [s.model_dump() for s in SCENARIOS],
+        "active_scenario_id": active_scenario_id or "",
+    })
+
+
+@app.post("/api/scenarios/{scenario_id}/start")
+async def start_scenario(scenario_id: str):
+    global active_scenario_id
+    scenario = next((s for s in SCENARIOS if s.id == scenario_id), None)
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    # Stop any running scenario first
+    if active_scenario_id and active_scenario_id != scenario_id:
+        old = next((s for s in SCENARIOS if s.id == active_scenario_id), None)
+        if old:
+            subprocess.run(_build_cmd(old, "down"), capture_output=True, cwd=str(BASE_DIR))
+
+    cmd = _build_cmd(scenario, "up", ["-d"])
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail={"stderr": result.stderr, "cmd": cmd})
+
+    active_scenario_id = scenario_id
+    return {"status": "started", "scenario_id": scenario_id, "cmd": cmd}
+
+
+@app.post("/api/scenarios/{scenario_id}/stop")
+async def stop_scenario(scenario_id: str):
+    global active_scenario_id
+    scenario = next((s for s in SCENARIOS if s.id == scenario_id), None)
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    cmd = _build_cmd(scenario, "down")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail={"stderr": result.stderr, "cmd": cmd})
+
+    if active_scenario_id == scenario_id:
+        active_scenario_id = None
+    return {"status": "stopped", "scenario_id": scenario_id}
+
+
+@app.post("/api/stop-all")
+async def stop_all():
+    global active_scenario_id
+    for scenario in SCENARIOS:
+        subprocess.run(_build_cmd(scenario, "down"), capture_output=True, cwd=str(BASE_DIR))
+    active_scenario_id = None
+    return {"status": "stopped_all"}
+
+
+@app.get("/api/scenarios/{scenario_id}/status")
+async def status(scenario_id: str):
+    scenario = next((s for s in SCENARIOS if s.id == scenario_id), None)
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    cmd = _build_cmd(scenario, "ps", ["--format", "json"])
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
+
+    services = {}
+    if result.returncode == 0 and result.stdout.strip():
+        for line in result.stdout.strip().split("\n"):
+            try:
+                entry = json.loads(line)
+                services[entry.get("Service", "unknown")] = {
+                    "state": entry.get("State", "unknown"),
+                    "status": entry.get("Status", ""),
+                    "health": entry.get("Health", ""),
+                }
+            except json.JSONDecodeError:
+                continue
+
+    expected = set(scenario.services_expected or [])
+    missing = sorted(expected - set(services.keys()))
+    healthy = bool(services) and not missing and all(
+        s.get("state") == "running" for s in services.values()
+    )
+
+    return {
+        "scenario_id": scenario_id,
+        "active": active_scenario_id == scenario_id,
+        "services": services,
+        "services_running": len(services),
+        "services_expected": len(expected),
+        "missing_services": missing,
+        "healthy": healthy,
+    }
+
+
+@app.get("/api/scenarios/{scenario_id}/logs")
+async def logs(scenario_id: str, tail: int = 100):
+    scenario = next((s for s in SCENARIOS if s.id == scenario_id), None)
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    cmd = _build_cmd(scenario, "logs", ["--tail", str(tail)])
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
+    return {"scenario_id": scenario_id, "logs": result.stdout or result.stderr}
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    port = DEFAULT_PORT
+    if len(sys.argv) > 1 and sys.argv[1] == "--port" and len(sys.argv) > 2:
+        port = int(sys.argv[2])
+    uvicorn.run("playground_web:app", host="0.0.0.0", port=port, reload=False)

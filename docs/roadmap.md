@@ -67,10 +67,10 @@ Items not covered by the current implementation, organized by category.
 | ------------------------------- | -------------- | --------------------------------------------------------------- | ------ | ----------------- |
 | Redshift sync                   | Scenario 1     | No JDBC driver in Spark image                                   | Medium | Deferred          |
 | Delta table compaction (ZORDER) | Scenario 1     | OSS Delta Lake limitation                                       | Low    | Deferred          |
-| Trino catalog configuration     | Scenario 2     | Deleted `hive.properties`, no Delta connector                   | Medium | Deferred          |
-| Spark Thrift Server             | Scenario 2     | Not deployed as Docker service                                  | Medium | Deferred          |
+| Trino catalog configuration     | Scenario 2     | Deleted `hive.properties`, no Delta connector                   | Medium | **In Progress**   |
+| Spark Thrift Server             | Scenario 2     | Not deployed as Docker service                                  | Medium | **In Progress**   |
 | dbt integration                 | Scenario 2     | Thrift Server missing, `profiles.yml` broken, dbt not installed | High   | Deferred          |
-| Hudi storage format             | Scenario 3     | Code commented out, Hudi JARs not configured                    | Medium | Deferred          |
+| Hudi storage format             | Scenario 3     | Code commented out, Hudi JARs not configured                    | Medium | **In Progress**   |
 | BI / Dashboard layer (Metabase) | Presentation   | Needs Trino catalog or Spark Thrift Server (Scenario 2)         | Medium | Deferred          |
 | Data governance (OpenLineage)   | Governance     | Cross-cutting; most value once Scenario 2 is in place           | High   | Deferred          |
 | Docker Compose profiles         | Infrastructure | -                                                               | Medium | **Done**          |
@@ -103,7 +103,7 @@ Items not covered by the current implementation, organized by category.
 ### Trino Catalog Configuration
 
 **Category:** Scenario 2 enablement
-**Current state:** Trino starts via Docker Compose (port 8082) but has no catalogs. The original `config/trino/catalog/hive.properties` was deleted from git.
+**Current state:** `config/trino/catalog/delta.properties` has been created but still needs testing. Trino starts via Docker Compose (port 8082). The original `config/trino/catalog/hive.properties` was deleted from git.
 **What's needed:**
 
 - Create `config/trino/catalog/delta.properties` with Delta Lake connector configuration
@@ -114,7 +114,7 @@ Items not covered by the current implementation, organized by category.
 ### Spark Thrift Server
 
 **Category:** Scenario 2 enablement
-**Current state:** Not deployed. Required by dbt-spark for thrift connection method.
+**Current state:** The service is defined in `compose/scenario-2.yml` but still needs healthcheck validation. Required by dbt-spark for thrift connection method.
 **What's needed:**
 
 - Add `spark-thrift` service to `docker-compose.yml`
@@ -168,7 +168,7 @@ spark-thrift:
 ### Hudi Storage Format
 
 **Category:** Scenario 3 enablement
-**Current state:** Hudi writeStream code is commented out in `src/streaming/streaming_job.py`. The producer and Kafka infrastructure are shared and already working.
+**Current state:** `STORAGE_FORMAT` parameterization is implemented in `src/streaming/streaming_job.py` and `src/batch/batch_job.py`, and a `compose/scenario-2.yml` override exists. The producer and Kafka infrastructure are shared and already working. Hudi Maven packages may need version verification.
 **What's needed:**
 
 - Uncomment Hudi writeStream configuration in `streaming_job.py`
@@ -377,6 +377,8 @@ These are additional architecture patterns that could be added to expand the pla
 ---
 
 ## Implementation Priority
+
+- **Scenario Switcher Web UI (Phase 1)** -- Completed. Enables students to select architecture scenarios via a browser.
 
 Recommended order for expanding the playground beyond the current state:
 

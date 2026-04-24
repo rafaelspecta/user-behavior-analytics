@@ -4,6 +4,8 @@ A Dockerized data pipeline for processing and analyzing user clickstream data at
 
 This README is the practical operations guide. For architecture deep-dives see `[docs/architecture-guide.md](docs/architecture-guide.md)`; for the service-by-service reference see `[docs/infrastructure.md](docs/infrastructure.md)`.
 
+> **Scenario Switcher:** Prefer a point-and-click experience? See [Scenario Switcher Web UI](#scenario-switcher-web-ui) below.
+
 ---
 
 ## Table of Contents
@@ -100,6 +102,16 @@ This README is the practical operations guide. For architecture deep-dives see `
 ---
 
 ## Architecture overview
+
+Three **scenario pipelines** are available, selectable either via Docker Compose profiles or through the **Scenario Switcher Web UI**.
+
+### Scenarios
+
+| Scenario | Storage Format | Query Engine | How to start (CLI) | How to start (Web UI) |
+|---|---|---|---|---|
+| **Scenario 1** | Delta Lake | Spark | `docker compose --profile streaming-first up -d` | Open UI, click Launch |
+| **Scenario 2** | Delta Lake | Spark + Trino + Thrift | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` | Open UI, click Launch |
+| **Scenario 3** | Hudi | Spark | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` | Open UI, click Launch |
 
 Two runnable orchestration architectures share the same data pipeline containers. Pick one via a Docker Compose profile.
 
@@ -470,6 +482,45 @@ docker volume rm user-behavior-analytics_ivy2-cache 2>/dev/null || true
 ```
 
 After `down -v` the next `up` will re-run all init scripts (Kafka topics, S3 buckets) and re-download Maven JARs.
+
+---
+
+## Scenario Switcher Web UI
+
+If you prefer a browser-based launcher over typing `docker compose` commands, use the included FastAPI web UI.
+
+### Start the web UI
+
+```bash
+# 1. Install dependencies (one time)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-web.txt
+
+# 2. Launch the server
+python playground_web.py
+```
+
+Then open [http://localhost:8084](http://localhost:8084) in your browser.
+
+### What you can do
+
+- **Pick a scenario** — Three cards: Delta+Spark, Delta+Trino, Hudi+Spark
+- **Click Launch** — The UI runs the correct `docker compose --profile ... up -d` command for you
+- **Check Status** — See which containers are running and whether the stack is healthy
+- **Stop All** — Shuts down everything before switching to a different scenario
+
+### How it works (CLI equivalent)
+
+The web UI is a thin wrapper over `docker compose`. Here is what each scenario maps to:
+
+| Scenario | UI Action | Equivalent CLI |
+|---|---|---|
+| **Scenario 1** | Click Launch | `docker compose --profile streaming-first up -d` |
+| **Scenario 2** | Click Launch | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` |
+| **Scenario 3** | Click Launch | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` |
+
+The UI reads scenario definitions from `scenarios.yml`, so adding a new scenario only requires editing that file.
 
 ---
 

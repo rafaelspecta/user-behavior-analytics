@@ -185,18 +185,17 @@ graph TD
 Orthogonal to the orchestration pattern, the **storage format** can also be swapped.
 
 
-| Scenario       | Storage Format | Query Engine        | Status      |
-| -------------- | -------------- | ------------------- | ----------- |
-| **Scenario 1** | Delta Lake     | Spark / `spark-sql` | **Working** |
-| **Scenario 2** | Delta Lake     | Trino + dbt         | Deferred    |
-| **Scenario 3** | Hudi           | Spark               | Deferred    |
-
+| Scenario       | Storage Format | Query Engine        | Status                |
+| -------------- | -------------- | ------------------- | --------------------- |
+| **Scenario 1** | Delta Lake     | Spark / `spark-sql` | **Working**           |
+| **Scenario 2** | Delta Lake     | Trino + dbt         | In Progress (Phase 1) |
+| **Scenario 3** | Hudi           | Spark               | In Progress (Phase 1) |
 
 These can be combined with any orchestration architecture above. For example:
 
-- Architecture A + Scenario 1 = streaming-first with manual batch (default today)
-- Architecture B + Scenario 1 = hybrid with Airflow-orchestrated batch (default today)
-- Architecture B + Scenario 2 = hybrid pipeline with Trino-served Gold layer and dbt transformations
+- Architecture A + Scenario 1 = streaming-first with Delta (default today, run via `--profile streaming-first`)
+- Architecture A + Scenario 2 = streaming-first + Trino query layer (run via `--profile streaming-first --profile trino -f compose/scenario-2.yml`)
+- Architecture A + Scenario 3 = streaming-first with Hudi format (run via `--profile streaming-first -f compose/scenario-3.yml`)
 
 ---
 
@@ -205,15 +204,19 @@ These can be combined with any orchestration architecture above. For example:
 Docker Compose profiles control which services come up. Core infrastructure (Kafka, Spark, LocalStack, Postgres, etc.) always starts; profile selection decides whether the data pipeline containers and/or Airflow also start.
 
 
-| Architecture                | Command                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------- |
-| **A (Streaming-First)**     | `docker compose --profile streaming-first up -d`                                |
-| **B (Hybrid with Airflow)** | `docker compose --profile airflow-orchestrated up -d`                           |
-| A + B simultaneously        | `docker compose --profile streaming-first --profile airflow-orchestrated up -d` |
-| Core infrastructure only    | `docker compose up -d`                                                          |
+| Architecture / Scenario          | Command                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **A (Streaming-First)**          | `docker compose --profile streaming-first up -d`                                                 |
+| **B (Hybrid with Airflow)**      | `docker compose --profile airflow-orchestrated up -d`                                             |
+| A + B simultaneously             | `docker compose --profile streaming-first --profile airflow-orchestrated up -d`                  |
+| Core infrastructure only         | `docker compose up -d`                                                                           |
+| **Scenario 2** (Delta + Trino)   | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d`       |
+| **Scenario 3** (Hudi)            | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d`                         |
 
 
 Running both profiles together is safe: `streaming-job` and `producer` are defined under both profiles so Docker Compose only instantiates them once, and the supervisor DAG sees the healthy app and never triggers a restart.
+
+> **Scenario Switcher Web UI:** Prefer a browser? Run `pip install -r requirements-web.txt && python playground_web.py` then open [http://localhost:8084](http://localhost:8084). See `README.md` for details.
 
 ### Profile-to-service mapping
 
