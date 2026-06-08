@@ -241,7 +241,7 @@ async def start_scenario(scenario_id: str):
     if active_scenario_id and active_scenario_id != scenario_id:
         old = next((s for s in SCENARIOS if s.id == active_scenario_id), None)
         if old:
-            subprocess.run(_build_cmd(old, "down"), capture_output=True, cwd=str(BASE_DIR))
+            subprocess.run(_build_cmd(old, "down", ["--remove-orphans"]), capture_output=True, cwd=str(BASE_DIR))
 
     cmd = _build_cmd(scenario, "up", ["-d"])
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
@@ -260,7 +260,7 @@ async def stop_scenario(scenario_id: str):
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
 
-    cmd = _build_cmd(scenario, "down")
+    cmd = _build_cmd(scenario, "down", ["--remove-orphans"])
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
     if result.returncode != 0:
         raise HTTPException(status_code=500, detail={"stderr": result.stderr, "cmd": cmd})
@@ -275,7 +275,7 @@ async def stop_scenario(scenario_id: str):
 async def stop_all():
     global active_scenario_id
     for scenario in SCENARIOS:
-        subprocess.run(_build_cmd(scenario, "down"), capture_output=True, cwd=str(BASE_DIR))
+        subprocess.run(_build_cmd(scenario, "down", ["--remove-orphans"]), capture_output=True, cwd=str(BASE_DIR))
     active_scenario_id = None
     _write_state(None)
     return {"status": "stopped_all"}
