@@ -38,7 +38,7 @@ All scenario definitions are in a single YAML file. The web UI reads this file
 at startup. Adding a new scenario only requires editing this file — no code
 changes.
 
-### Scenario 1: Streaming First (Architecture A, Delta Lake)
+### Scenario 1: Streaming First (Delta Lake)
 
 - **What**: Kafka → Spark Structured Streaming → Delta Lake Silver → manual
   batch to Gold. No Airflow.
@@ -48,25 +48,25 @@ changes.
 - **Env**: `.env.scenario-1` (`STORAGE_FORMAT=delta`, Delta packages)
 - **Extra services**: none
 
-### Scenario 2: Airflow Orchestrated (Architecture B, Delta Lake)
+### Scenario 2: Airflow Orchestrated (Delta Lake)
 
 - **What**: Same pipeline as Scenario 1, but Airflow supervises the streaming
-  container and orchestrates batch. Architecture B from the README.
+  container and orchestrates batch.
 - **Profiles**: `airflow-orchestrated`
 - **Compose files**: `docker-compose.yml` only
 - **Env**: `.env.scenario-1` (same Delta pipeline)
 - **Extra services**: `airflow` (port 8081)
 
-### Scenario 3: Trino SQL Engine (Architecture A + Trino + Thrift)
+### Scenario 3: Trino SQL Engine (Delta Lake + Trino + Thrift)
 
 - **What**: Adds Trino (SQL query engine) and Spark Thrift Server on top of
-  Architecture A. dbt deferred to Phase 2 (custom Airflow image required).
+  the baseline. dbt deferred to Phase 2 (custom Airflow image required).
 - **Profiles**: `streaming-first`, `trino`
 - **Compose files**: `docker-compose.yml`, `compose/scenario-2.yml`
 - **Env**: `.env.scenario-2` (`STORAGE_FORMAT=delta`, `ENABLE_TRINO=true`)
 - **Extra services**: `trino` (port 8082), `spark-thrift` (port 10000)
 
-### Scenario 4: Hudi Comparison (Architecture A, Hudi)
+### Scenario 4: Hudi Comparison (Hudi)
 
 - **What**: Same pipeline as Scenario 1, but streaming writes Apache Hudi
   tables instead of Delta Lake. Lakehouse format comparison.

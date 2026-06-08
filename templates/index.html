@@ -85,8 +85,6 @@
     .tag {
       font-size: .72rem; padding: .2rem .55rem; border-radius: 999px; background: #0f172a; color: var(--muted); border: 1px solid #334155;
     }
-    .tag.arch-a { color: var(--accent); border-color: var(--accent); }
-    .tag.arch-b { color: #e879f9; border-color: #e879f9; }
     .section-label {
       font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: .35rem;
     }
@@ -176,9 +174,6 @@
       grid.innerHTML = scenarios.map(s => {
         const servicesHtml = (s.services_list || []).map(n => `<li>${h(n)}</li>`).join('');
         const linksHtml = (s.links || []).map(l => `<li><a href="${h(l.url)}" target="_blank">${h(l.name)}</a><span class="link-desc">&mdash; ${h(l.description)}</span></li>`).join('');
-        const archTag = s.architecture === 'B'
-          ? '<span class="tag arch-b">Architecture B</span>'
-          : '<span class="tag arch-a">Architecture A</span>';
         const stepsHtml = (s.exploration_steps || []).map(st => `<li><strong>${st.step}. ${h(st.title)}</strong><br>${h(st.description)}</li>`).join('');
         const hasGuide = (s.exploration_steps || []).length > 0;
         return `
@@ -188,7 +183,7 @@
               <h2>${h(s.name)}</h2>
             </div>
             <p class="desc">${h(s.description.replace(/\n/g, ' '))}</p>
-            <div class="tags">${archTag}<span class="tag">${s.id}</span></div>
+            <div class="tags"><span class="tag">${s.id}</span></div>
             <div class="section-label">Services (${(s.services_list||[]).length})</div>
             <ul class="services-pills">${servicesHtml}</ul>
             <div class="section-label">Web UIs</div>

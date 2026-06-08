@@ -2,10 +2,9 @@ scenarios:
   - id: scenario-1
     name: "Streaming First"
     description: >
-      Architecture A: Streaming pipeline with Delta Lake on S3.
+      Streaming pipeline with Delta Lake on S3.
       Kafka → Spark Structured Streaming → Delta Lake Silver → batch to Gold.
       No Airflow — the simplest stack.
-    architecture: A
     services_list:
       - kafdrop
       - zookeeper
@@ -62,9 +61,8 @@ scenarios:
   - id: scenario-2
     name: "Airflow Orchestrated"
     description: >
-      Architecture B: Airflow supervises the streaming pipeline and orchestrates batch.
-      Same Delta Lake pipeline as Streaming First, now with production-grade orchestration.
-    architecture: B
+      Adds Airflow for streaming supervision and batch orchestration.
+      Same Delta Lake pipeline as Streaming First, now with production-grade scheduling.
     services_list:
       - kafdrop
       - zookeeper
@@ -126,9 +124,8 @@ scenarios:
   - id: scenario-3
     name: "Trino SQL Engine"
     description: >
-      Adds Trino SQL engine and Spark Thrift Server for querying Delta tables.
-      dbt deferred to Phase 2. Architecture A + SQL query layer.
-    architecture: A
+      Adds Trino SQL engine and Spark Thrift Server for querying Delta tables with SQL.
+      dbt deferred to a future PR.
     services_list:
       - kafdrop
       - zookeeper
@@ -191,9 +188,8 @@ scenarios:
   - id: scenario-4
     name: "Hudi Comparison"
     description: >
-      Lakehouse format comparison. Streaming writes Apache Hudi tables
-      instead of Delta Lake. Architecture A.
-    architecture: A
+      Swaps Delta Lake for Apache Hudi. Same pipeline, different storage format.
+      Compare Delta transaction log vs Hudi timeline.
     services_list:
       - kafdrop
       - zookeeper

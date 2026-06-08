@@ -19,11 +19,11 @@ This README is the practical operations guide. For architecture deep-dives see `
   - [Cross-platform support](#cross-platform-support)
   - [Switching between architectures (important)](#switching-between-architectures-important)
   - [Reset state (clean slate)](#reset-state-clean-slate)
-- [Architecture A — Streaming-First](#architecture-a--streaming-first)
+- [Streaming First](#streaming-first)
   - [Start](#start)
   - [Step-by-step pipeline exploration](#step-by-step-pipeline-exploration)
   - [Stop](#stop)
-- [Architecture B — Hybrid with Airflow](#architecture-b--hybrid-with-airflow)
+- [Airflow Orchestrated](#airflow-orchestrated)
   - [Start](#start-1)
   - [Step-by-step pipeline exploration](#step-by-step-pipeline-exploration-1)
   - [Stop](#stop-1)
@@ -107,17 +107,19 @@ Four **scenario pipelines** are available, selectable either via Docker Compose 
 
 ### Scenarios
 
-| Scenario | Architecture | What's New | How to start (CLI) | How to start (Web UI) |
-|---|---|---|---|---|
-| **Scenario 1: Streaming First** | A | Baseline: Delta Lake + Spark pipeline, no Airflow | `docker compose --profile streaming-first up -d` | Open UI, click Launch |
-| **Scenario 2: Airflow Orchestrated** | B | Adds Airflow for streaming supervision + batch orchestration | `docker compose --profile airflow-orchestrated up -d` | Open UI, click Launch |
-| **Scenario 3: Trino SQL Engine** | A | Adds Trino + Spark Thrift Server for SQL analytics | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` | Open UI, click Launch |
-| **Scenario 4: Hudi Comparison** | A | Swaps Delta Lake for Apache Hudi (lakehouse format comparison) | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` | Open UI, click Launch |
+| Scenario | What's New | How to start (CLI) | How to start (Web UI) |
+|---|---|---|---|
+| **Scenario 1: Streaming First** | Baseline: Delta Lake + Spark pipeline, no Airflow | `docker compose --profile streaming-first up -d` | Open UI, click Launch |
+| **Scenario 2: Airflow Orchestrated** | Adds Airflow for streaming supervision + batch orchestration | `docker compose --profile airflow-orchestrated up -d` | Open UI, click Launch |
+| **Scenario 3: Trino SQL Engine** | Adds Trino + Spark Thrift Server for SQL analytics | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` | Open UI, click Launch |
+| **Scenario 4: Hudi Comparison** | Swaps Delta Lake for Apache Hudi (lakehouse format comparison) | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` | Open UI, click Launch |
 
-Two runnable orchestration architectures share the same data pipeline containers. Pick one via a Docker Compose profile.
+All scenarios share the same data pipeline containers (Kafka, Spark, LocalStack). Each adds one new dimension: orchestration, SQL query layer, or storage format.
 
-- **Architecture A — Streaming-First.** Streaming runs as a long-lived Docker container; batch is triggered manually. No Airflow.
-- **Architecture B — Hybrid with Airflow.** Same streaming container, but Airflow supervises it (auto-restart via the Docker Engine API) and orchestrates batch (`spark-submit` from inside Airflow). This is the pattern most production teams use.
+- **Streaming First** — Pipeline runs as Docker containers; batch triggered manually. No Airflow.
+- **Airflow Orchestrated** — Same pipeline, but Airflow supervises streaming and orchestrates batch. Production-grade scheduling.
+- **Trino SQL Engine** — Adds Trino and Spark Thrift Server for SQL queries against Delta tables.
+- **Hudi Comparison** — Swaps Delta Lake for Apache Hudi. Compare storage formats side-by-side.
 
 For the side-by-side comparison diagram, the profile-to-service mapping, and the explanation of why full Airflow submission is not possible on Spark Standalone (PySpark limitation), see `[docs/architecture-guide.md](docs/architecture-guide.md)`.
 
@@ -187,7 +189,7 @@ Do NOT use this on a system that holds data you care about. For this project, th
 
 ---
 
-## Architecture A — Streaming-First
+## Streaming First
 
 > **Want the architectural rationale?** See [docs/architecture-guide.md#architecture-a-streaming-first](docs/architecture-guide.md#architecture-a-streaming-first) for what this pattern is, when to use it, and its trade-offs.
 
@@ -391,11 +393,11 @@ docker compose --profile streaming-first down -v       # also drop volumes (clea
 
 ---
 
-## Architecture B — Hybrid with Airflow
+## Airflow Orchestrated
 
 > **Want the architectural rationale?** See [docs/architecture-guide.md#architecture-b-hybrid-with-airflow](docs/architecture-guide.md#architecture-b-hybrid-with-airflow) for what this pattern is, when to use it, and its trade-offs.
 
-Everything from Architecture A is still true here -- the same `producer` and `streaming-job` containers run the data plane. The difference is that **Airflow is now the operator**: it supervises the streaming container and orchestrates the batch run.
+Everything from Streaming First is still true here -- the same `producer` and `streaming-job` containers run the data plane. The difference is that **Airflow is now the operator**: it supervises the streaming container and orchestrates the batch run.
 
 ### Start
 
@@ -417,23 +419,23 @@ You should see four DAGs: `clickstream_batch`, `clickstream_pipeline`, `clickstr
 
 ### Step-by-step pipeline exploration
 
-Steps 1-5 below are identical to Architecture A (event arrives → Kafdrop → Spark UI → S3 → `spark-sql` → batch). The interesting new piece is step 6, where Airflow takes over orchestration.
+Steps 1-5 below are identical to Streaming First (event arrives → Kafdrop → Spark UI → S3 → `spark-sql` → batch). The interesting new piece is step 6, where Airflow takes over orchestration.
 
 #### 1. Watch events on Kafdrop
 
-Same as Architecture A step 1 above -- [http://localhost:9033](http://localhost:9033) → `clickstream-events`.
+Same as Streaming First step 1 above -- [http://localhost:9033](http://localhost:9033) → `clickstream-events`.
 
 #### 2. See streaming at work in the Spark UI
 
-Same as Architecture A step 2 -- [http://localhost:8080](http://localhost:8080) → `ClickstreamStreaming`.
+Same as Streaming First step 2 -- [http://localhost:8080](http://localhost:8080) → `ClickstreamStreaming`.
 
 #### 3. Confirm data on S3
 
-Same as Architecture A step 3.
+Same as Streaming First step 3.
 
 #### 4. Query the Silver layer with `spark-sql`
 
-Same as Architecture A step 4. The data is identical because the streaming container is the same.
+Same as Streaming First step 4. The data is identical because the streaming container is the same.
 
 #### 5. Run the batch aggregation — but this time via Airflow
 
@@ -444,11 +446,11 @@ Open [http://localhost:8081](http://localhost:8081). No login is required (Simpl
 - Watch the two tasks run in order: `run_batch_job` (spark-submit executed from inside Airflow) → `verify_gold_layer` (S3 object count check)
 - Click `run_batch_job` → **Logs** to see the full `spark-submit` output, including Ivy resolution (which should be instant after the first run thanks to the shared `ivy2-cache` volume)
 
-Verify the Gold data exists exactly as in Architecture A step 5 (via `awslocal s3 ls` or the `spark-sql` REPL).
+Verify the Gold data exists exactly as in Streaming First step 5 (via `awslocal s3 ls` or the `spark-sql` REPL).
 
 #### 6. Overview the workflow in Airflow
 
-The real differentiator of Architecture B is **streaming supervision**. Open [http://localhost:8081](http://localhost:8081) and explore these DAGs:
+The real differentiator of Airflow Orchestrated is **streaming supervision**. Open [http://localhost:8081](http://localhost:8081) and explore these DAGs:
 
 - `**clickstream_streaming_supervisor`** (every 5 min, `max_active_runs=1`). Unpause it. The DAG graph has three tasks:
   - `check_streaming_health` (Python) — calls the Spark Master REST API, raises `RuntimeError` if no streaming app is active

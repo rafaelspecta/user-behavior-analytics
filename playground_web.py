@@ -56,7 +56,6 @@ class ScenarioModel(BaseModel):
     id: str
     name: str
     description: str
-    architecture: str = "A"
     services_list: List[str] = []
     links: List[ServiceLink] = []
     exploration_steps: List[ExplorationStep] = []
