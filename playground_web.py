@@ -42,10 +42,24 @@ DEFAULT_PORT = int(os.environ.get("PLAYGROUND_PORT", "8084"))
 # ---------------------------------------------------------------------------
 
 
+class ExplorationStep(BaseModel):
+    step: int
+    title: str
+    description: str
+
+class ServiceLink(BaseModel):
+    name: str
+    url: str
+    description: str
+
 class ScenarioModel(BaseModel):
     id: str
     name: str
     description: str
+    architecture: str = "A"
+    services_list: List[str] = []
+    links: List[ServiceLink] = []
+    exploration_steps: List[ExplorationStep] = []
     profiles: List[str]
     compose_files: List[str]
     env_file: str = ""

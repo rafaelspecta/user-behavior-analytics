@@ -55,8 +55,8 @@
       margin: 0 auto;
       padding: 1rem;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 1rem;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 1.25rem;
     }
     .card {
       background: var(--card-bg);
@@ -65,10 +65,12 @@
       border: 1px solid #334155;
       transition: border-color .2s ease;
       position: relative;
+      display: flex;
+      flex-direction: column;
     }
     .card.active { border-color: var(--success); box-shadow: 0 0 0 2px rgba(34,197,94,.2); }
     .card-header {
-      display: flex; align-items: center; gap: .75rem; margin-bottom: .75rem;
+      display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem;
     }
     .dot {
       width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex-shrink: 0;
@@ -76,25 +78,50 @@
     .dot.running { background: var(--success); box-shadow: 0 0 6px rgba(34,197,94,.5); }
     .dot.stopped { background: var(--danger); }
     .card h2 { margin: 0; font-size: 1.1rem; }
-    .card p.desc { margin: 0 0 1rem; color: var(--muted); font-size: .95rem; }
+    .card p.desc { margin: 0 0 .75rem; color: var(--muted); font-size: .92rem; }
     .tags {
       display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem;
     }
     .tag {
-      font-size: .75rem; padding: .2rem .55rem; border-radius: 999px; background: #0f172a; color: var(--muted); border: 1px solid #334155;
+      font-size: .72rem; padding: .2rem .55rem; border-radius: 999px; background: #0f172a; color: var(--muted); border: 1px solid #334155;
     }
-    .services {
-      font-size: .85rem; color: var(--muted); margin-bottom: 1rem;
+    .tag.arch-a { color: var(--accent); border-color: var(--accent); }
+    .tag.arch-b { color: #e879f9; border-color: #e879f9; }
+    .section-label {
+      font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: .35rem;
     }
-    .actions { display: flex; gap: .5rem; }
+    .services-pills, .links-list, .steps-list {
+      list-style: none; padding: 0; margin: 0 0 .75rem;
+    }
+    .services-pills {
+      display: flex; flex-wrap: wrap; gap: .3rem;
+    }
+    .services-pills li {
+      font-size: .75rem; padding: .15rem .5rem; border-radius: 999px; background: rgba(56,189,248,.1); color: var(--accent); border: 1px solid rgba(56,189,248,.15);
+    }
+    .links-list li {
+      margin-bottom: .3rem;
+    }
+    .links-list a {
+      font-size: .82rem; color: var(--accent); text-decoration: none; font-weight: 500;
+    }
+    .links-list a:hover { text-decoration: underline; }
+    .links-list span.link-desc { font-size: .75rem; color: var(--muted); margin-left: .5rem; }
+    .steps-list li {
+      font-size: .8rem; padding: .3rem 0; border-bottom: 1px solid rgba(51,65,85,.4); color: var(--muted);
+    }
+    .steps-list li:last-child { border-bottom: none; }
+    .steps-list li strong { color: var(--text); }
+    .actions { display: flex; gap: .5rem; margin-top: auto; }
     .actions button { flex: 1; padding: .55rem; border-radius: var(--radius); border: none; cursor: pointer; font-weight: 600; }
     .btn-launch { background: var(--accent); color: #0f172a; }
     .btn-launch:disabled { opacity: .5; cursor: not-allowed; }
     .btn-status { background: #334155; color: var(--text); }
-    .status-drawer {
+    .btn-guide { background: transparent; color: var(--accent); border: 1px solid var(--accent)!important; flex: 0 0 auto; padding: .55rem .75rem!important; }
+    .status-drawer, .guide-drawer {
       margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #334155; display: none;
     }
-    .status-drawer.open { display: block; }
+    .status-drawer.open, .guide-drawer.open { display: block; }
     .service-row {
       display: flex; justify-content: space-between; align-items: center;
       padding: .35rem .5rem; border-radius: 6px; background: #0f172a; margin-bottom: .4rem;
@@ -142,30 +169,47 @@
       setTimeout(() => t.classList.remove('show'), 3000);
     }
 
+    function h(str) { return str.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
     function render() {
       const grid = document.getElementById('grid');
-      grid.innerHTML = scenarios.map(s => `
-        <div class="card ${s.id === activeScenarioId ? 'active' : ''}" data-id="${s.id}">
-          <div class="card-header">
-            <div class="dot ${s.id === activeScenarioId ? 'running' : 'stopped'}"></div>
-            <h2>${s.name}</h2>
+      grid.innerHTML = scenarios.map(s => {
+        const servicesHtml = (s.services_list || []).map(n => `<li>${h(n)}</li>`).join('');
+        const linksHtml = (s.links || []).map(l => `<li><a href="${h(l.url)}" target="_blank">${h(l.name)}</a><span class="link-desc">&mdash; ${h(l.description)}</span></li>`).join('');
+        const archTag = s.architecture === 'B'
+          ? '<span class="tag arch-b">Architecture B</span>'
+          : '<span class="tag arch-a">Architecture A</span>';
+        const stepsHtml = (s.exploration_steps || []).map(st => `<li><strong>${st.step}. ${h(st.title)}</strong><br>${h(st.description)}</li>`).join('');
+        const hasGuide = (s.exploration_steps || []).length > 0;
+        return `
+          <div class="card ${s.id === activeScenarioId ? 'active' : ''}" data-id="${s.id}">
+            <div class="card-header">
+              <div class="dot ${s.id === activeScenarioId ? 'running' : 'stopped'}"></div>
+              <h2>${h(s.name)}</h2>
+            </div>
+            <p class="desc">${h(s.description.replace(/\n/g, ' '))}</p>
+            <div class="tags">${archTag}<span class="tag">${s.id}</span></div>
+            <div class="section-label">Services (${(s.services_list||[]).length})</div>
+            <ul class="services-pills">${servicesHtml}</ul>
+            <div class="section-label">Web UIs</div>
+            <ul class="links-list">${linksHtml || '<li style="color:var(--muted);font-size:.8rem">None</li>'}</ul>
+            <div class="actions">
+              <button class="btn-launch" id="btn-${s.id}" onclick="launch('${s.id}')">Launch</button>
+              <button class="btn-status" onclick="toggleStatus('${s.id}')">Status</button>
+              ${hasGuide ? '<button class="btn-guide" onclick="toggleGuide(\'' + s.id + '\')">Guide</button>' : ''}
+            </div>
+            <div class="status-drawer" id="status-${s.id}">
+              <div class="summary" id="summary-${s.id}">Checking...</div>
+              <div id="services-${s.id}"></div>
+            </div>
+            ${hasGuide ? `
+            <div class="guide-drawer" id="guide-${s.id}">
+              <div class="section-label">Step-by-Step Exploration</div>
+              <ol class="steps-list">${stepsHtml}</ol>
+            </div>` : ''}
           </div>
-          <p class="desc">${s.description.replace(/\n/g, ' ')}</p>
-          <div class="tags">
-            <span class="tag">${s.id}</span>
-            <span class="tag">Architecture A</span>
-          </div>
-          <div class="services">Services: ${s.services_expected.length} expected</div>
-          <div class="actions">
-            <button class="btn-launch" id="btn-${s.id}" onclick="launch('${s.id}')">Launch</button>
-            <button class="btn-status" onclick="toggleStatus('${s.id}')">Check Status</button>
-          </div>
-          <div class="status-drawer" id="status-${s.id}">
-            <div class="summary" id="summary-${s.id}">Checking...</div>
-            <div id="services-${s.id}"></div>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     async function launch(id) {
@@ -186,9 +230,9 @@
     async function stopAll() {
       showToast('Stopping all scenarios...');
       try {
-        const res = await fetch('/api/stop-all', { method: 'POST' });
-        const data = await res.json();
-        showToast('Stopped: ' + (data.stopped.join(', ') || 'none'));refreshAll();
+        await fetch('/api/stop-all', { method: 'POST' });
+        showToast('All stopped');
+        refreshAll();
       } catch (e) {
         showToast('Error stopping: ' + e.message);
       }
@@ -198,7 +242,19 @@
       const drawer = document.getElementById('status-' + id);
       if (drawer.classList.contains('open')) { drawer.classList.remove('open'); return; }
       drawer.classList.add('open');
+      // Close guide drawer if open
+      const guide = document.getElementById('guide-' + id);
+      if (guide) guide.classList.remove('open');
       await checkStatus(id);
+    }
+
+    function toggleGuide(id) {
+      const drawer = document.getElementById('guide-' + id);
+      if (drawer.classList.contains('open')) { drawer.classList.remove('open'); return; }
+      drawer.classList.add('open');
+      // Close status drawer if open
+      const status = document.getElementById('status-' + id);
+      status.classList.remove('open');
     }
 
     async function checkStatus(id) {
