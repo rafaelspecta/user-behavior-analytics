@@ -36,6 +36,7 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 SCENARIOS_FILE = BASE_DIR / "scenarios.yml"
 LAYERS_FILE = BASE_DIR / "layers.yml"
+STATE_FILE = BASE_DIR / ".active-scenario"
 DEFAULT_PORT = int(os.environ.get("PLAYGROUND_PORT", "8084"))
 
 # ---------------------------------------------------------------------------
@@ -82,6 +83,23 @@ def _load_scenarios():
 
 SCENARIOS: List[ScenarioModel] = _load_scenarios()
 active_scenario_id: Optional[str] = None
+
+
+def _read_state() -> Optional[str]:
+    """Read the persisted active scenario ID from disk."""
+    if STATE_FILE.exists():
+        sid = STATE_FILE.read_text().strip()
+        if sid and any(s.id == sid for s in SCENARIOS):
+            return sid
+    return None
+
+
+def _write_state(scenario_id: Optional[str]):
+    """Persist or clear the active scenario ID."""
+    if scenario_id:
+        STATE_FILE.write_text(scenario_id)
+    elif STATE_FILE.exists():
+        STATE_FILE.unlink()
 
 # ---------------------------------------------------------------------------
 # Load layers (layer-based scenario explorer)
@@ -147,28 +165,69 @@ async def layer_view(request: Request):
 
 @app.get("/api/active-scenario")
 async def active_scenario():
-    """Detect which scenario (if any) is currently running via Docker."""
-    best = None
-    best_count = 0
+    """Detect which scenario (if any) is currently running.
+    
+    Priority:
+    1. Persisted state file (.active-scenario) — written on web UI launch
+    2. Docker detection — used as fallback. Queries all profiles at once
+       and picks the scenario with the most expected services all running.
+       Each scenario has a unique service composition — there can be only one best match.
+    """
+    # 1. Try persisted state first
+    persisted = _read_state()
+    if persisted:
+        scenario = next((s for s in SCENARIOS if s.id == persisted), None)
+        if scenario:
+            expected = set(scenario.services_expected or [])
+            running = _get_all_running_services([scenario])
+            if expected and expected <= running:
+                return {"scenario_id": persisted, "source": "state_file"}
+    
+    # 2. Fallback to Docker detection — scan all scenarios with all profiles
+    all_running = _get_all_running_services(SCENARIOS)
+    best_scenario = None
+    best_match = 0
     for scenario in SCENARIOS:
-        cmd = _build_cmd(scenario, "ps", ["--format", "json"])
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
-        if result.returncode != 0 or not result.stdout.strip():
-            continue
         expected = set(scenario.services_expected or [])
-        running = set()
-        for line in result.stdout.strip().split("\n"):
-            try:
-                entry = json.loads(line)
-                if entry.get("State") == "running":
-                    running.add(entry.get("Service", ""))
-            except json.JSONDecodeError:
-                continue
-        match_count = len(expected & running)
-        if match_count > best_count:
-            best_count = match_count
-            best = scenario.id
-    return {"scenario_id": best, "match_count": best_count}
+        if expected and expected <= all_running:
+            if len(expected) > best_match:
+                best_match = len(expected)
+                best_scenario = scenario.id
+    if best_scenario:
+        _write_state(best_scenario)
+        return {"scenario_id": best_scenario, "source": "docker_detect"}
+    
+    return {"scenario_id": None, "source": "none"}
+
+
+def _get_all_running_services(scenarios: List[ScenarioModel]) -> set:
+    """Get all running services using all profiles from all scenarios."""
+    cmd = ["docker", "compose"]
+    seen_files = set()
+    for s in scenarios:
+        for cf in s.compose_files:
+            if cf not in seen_files:
+                cmd += ["-f", cf]
+                seen_files.add(cf)
+    seen_profiles = set()
+    for s in scenarios:
+        for p in s.profiles:
+            if p not in seen_profiles:
+                cmd += ["--profile", p]
+                seen_profiles.add(p)
+    cmd += ["ps", "--format", "json"]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
+    running = set()
+    if result.returncode != 0 or not result.stdout.strip():
+        return running
+    for line in result.stdout.strip().split("\n"):
+        try:
+            entry = json.loads(line)
+            if entry.get("State") == "running":
+                running.add(entry.get("Service", ""))
+        except json.JSONDecodeError:
+            continue
+    return running
 
 
 @app.post("/api/scenarios/{scenario_id}/start")
@@ -190,6 +249,7 @@ async def start_scenario(scenario_id: str):
         raise HTTPException(status_code=500, detail={"stderr": result.stderr, "cmd": cmd})
 
     active_scenario_id = scenario_id
+    _write_state(scenario_id)
     return {"status": "started", "scenario_id": scenario_id, "cmd": cmd}
 
 
@@ -207,6 +267,7 @@ async def stop_scenario(scenario_id: str):
 
     if active_scenario_id == scenario_id:
         active_scenario_id = None
+        _write_state(None)
     return {"status": "stopped", "scenario_id": scenario_id}
 
 
@@ -216,6 +277,7 @@ async def stop_all():
     for scenario in SCENARIOS:
         subprocess.run(_build_cmd(scenario, "down"), capture_output=True, cwd=str(BASE_DIR))
     active_scenario_id = None
+    _write_state(None)
     return {"status": "stopped_all"}
 
 
