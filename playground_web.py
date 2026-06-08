@@ -145,6 +145,32 @@ async def layer_view(request: Request):
     })
 
 
+@app.get("/api/active-scenario")
+async def active_scenario():
+    """Detect which scenario (if any) is currently running via Docker."""
+    best = None
+    best_count = 0
+    for scenario in SCENARIOS:
+        cmd = _build_cmd(scenario, "ps", ["--format", "json"])
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
+        if result.returncode != 0 or not result.stdout.strip():
+            continue
+        expected = set(scenario.services_expected or [])
+        running = set()
+        for line in result.stdout.strip().split("\n"):
+            try:
+                entry = json.loads(line)
+                if entry.get("State") == "running":
+                    running.add(entry.get("Service", ""))
+            except json.JSONDecodeError:
+                continue
+        match_count = len(expected & running)
+        if match_count > best_count:
+            best_count = match_count
+            best = scenario.id
+    return {"scenario_id": best, "match_count": best_count}
+
+
 @app.post("/api/scenarios/{scenario_id}/start")
 async def start_scenario(scenario_id: str):
     global active_scenario_id

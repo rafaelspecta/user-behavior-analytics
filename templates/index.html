@@ -179,7 +179,7 @@
 
   <script>
     const scenarios = {{ scenarios | tojson | safe }};
-    const activeScenarioId = {{ (active_scenario_id or None) | tojson | safe }};
+    let activeScenarioId = {{ (active_scenario_id or None) | tojson | safe }};
   </script>
   <script>
     {% raw %}
@@ -297,17 +297,42 @@
     }
 
     async function refreshAll() {
+      await detectRunning();
       for (const s of scenarios) {
         const drawer = document.getElementById('status-' + s.id);
         if (drawer && drawer.classList.contains('open')) await checkStatus(s.id);
-        else {
-          const card = document.querySelector(`.card[data-id="${s.id}"]`);
-          if (card) { card.classList.remove('active'); const dot = card.querySelector('.dot'); dot.classList.remove('running'); dot.classList.add('stopped'); }
-        }
       }
     }
 
+    async function detectRunning() {
+      try {
+        const res = await fetch('/api/active-scenario');
+        const data = await res.json();
+        const newActive = data.scenario_id;
+        if (newActive !== activeScenarioId) {
+          activeScenarioId = newActive;
+          render();
+        }
+        // Update dots based on actual Docker status
+        for (const s of scenarios) {
+          const card = document.querySelector(`.card[data-id="${s.id}"]`);
+          if (!card) continue;
+          const dot = card.querySelector('.dot');
+          if (s.id === activeScenarioId) {
+            card.classList.add('active');
+            dot.classList.add('running');
+            dot.classList.remove('stopped');
+          } else {
+            card.classList.remove('active');
+            dot.classList.remove('running');
+            dot.classList.add('stopped');
+          }
+        }
+      } catch (e) {}
+    }
+
     render();
+    detectRunning();
     setInterval(refreshAll, 10000);
     {% endraw %}
   </script>

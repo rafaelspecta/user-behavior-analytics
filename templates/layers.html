@@ -244,7 +244,7 @@
     const refStacks = {{ reference_stacks | tojson | safe }};
     const activeScenarioId = {{ (active_scenario_id or None) | tojson | safe }};
 
-    let selectedScenario = activeScenarioId || null;
+    let selectedScenario = null;
     let enabledStacks = new Set();
 
     function h(str) { return (str || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -262,7 +262,7 @@
         `).join('')}
         <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #334155">
           <button class="scenario-btn" onclick="select(null)" style="${!selectedScenario ? 'border-color:var(--accent);color:var(--accent);font-weight:600' : ''}">
-            Show All
+            Show Available
           </button>
         </div>`;
 
@@ -279,9 +279,9 @@
       `).join('') + `
         <span class="spacer"></span>
         <div class="legend">
-          <span class="legend-item"><span class="legend-dot selected"></span> Selected</span>
-          <span class="legend-item"><span class="legend-dot available"></span> Available</span>
-          <span class="legend-item"><span class="legend-dot future"></span> Future</span>
+          <span class="legend-item" title="Active in the selected scenario — running right now"><span class="legend-dot selected"></span> Selected</span>
+          <span class="legend-item" title="Implemented and available — part of the playground but not used by this scenario"><span class="legend-dot available"></span> Available</span>
+          <span class="legend-item" title="Planned for a future branch — not yet implemented"><span class="legend-dot future"></span> Future</span>
         </div>`;
 
       // Table head
@@ -302,12 +302,6 @@
         if (selectedScenario) {
           for (const t of l.tools) {
             if (t.scenarios && t.scenarios.includes(selectedScenario)) {
-              activeTools.add(t.id);
-            }
-          }
-        } else {
-          for (const t of l.tools) {
-            if (t.status === 'implemented' && t.scenarios && t.scenarios.length > 0) {
               activeTools.add(t.id);
             }
           }
@@ -360,7 +354,19 @@
       setTimeout(() => t.classList.remove('show'), 2500);
     }
 
+    async function detectRunning() {
+      try {
+        const res = await fetch('/api/active-scenario');
+        const data = await res.json();
+        if (data.scenario_id && data.scenario_id !== selectedScenario) {
+          selectedScenario = data.scenario_id;
+          render();
+        }
+      } catch (e) {}
+    }
+
     render();
+    detectRunning();
   </script>
 </body>
 </html>
