@@ -103,15 +103,16 @@ This README is the practical operations guide. For architecture deep-dives see `
 
 ## Architecture overview
 
-Three **scenario pipelines** are available, selectable either via Docker Compose profiles or through the **Scenario Switcher Web UI**.
+Four **scenario pipelines** are available, selectable either via Docker Compose profiles or through the **Scenario Switcher Web UI**. Each scenario introduces one new concept in the data stack.
 
 ### Scenarios
 
-| Scenario | Storage Format | Query Engine | How to start (CLI) | How to start (Web UI) |
+| Scenario | Architecture | What's New | How to start (CLI) | How to start (Web UI) |
 |---|---|---|---|---|
-| **Scenario 1** | Delta Lake | Spark | `docker compose --profile streaming-first up -d` | Open UI, click Launch |
-| **Scenario 2** | Delta Lake | Spark + Trino + Thrift | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` | Open UI, click Launch |
-| **Scenario 3** | Hudi | Spark | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` | Open UI, click Launch |
+| **Scenario 1: Streaming First** | A | Baseline: Delta Lake + Spark pipeline, no Airflow | `docker compose --profile streaming-first up -d` | Open UI, click Launch |
+| **Scenario 2: Airflow Orchestrated** | B | Adds Airflow for streaming supervision + batch orchestration | `docker compose --profile airflow-orchestrated up -d` | Open UI, click Launch |
+| **Scenario 3: Trino SQL Engine** | A | Adds Trino + Spark Thrift Server for SQL analytics | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` | Open UI, click Launch |
+| **Scenario 4: Hudi Comparison** | A | Swaps Delta Lake for Apache Hudi (lakehouse format comparison) | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` | Open UI, click Launch |
 
 Two runnable orchestration architectures share the same data pipeline containers. Pick one via a Docker Compose profile.
 
@@ -505,7 +506,7 @@ Then open [http://localhost:8084](http://localhost:8084) in your browser.
 
 ### What you can do
 
-- **Pick a scenario** — Three cards: Delta+Spark, Delta+Trino, Hudi+Spark
+- **Pick a scenario** — Four cards: Streaming First, Airflow Orchestrated, Trino SQL Engine, Hudi Comparison
 - **Click Launch** — The UI runs the correct `docker compose --profile ... up -d` command for you
 - **Check Status** — See which containers are running and whether the stack is healthy
 - **Stop All** — Shuts down everything before switching to a different scenario
@@ -516,9 +517,10 @@ The web UI is a thin wrapper over `docker compose`. Here is what each scenario m
 
 | Scenario | UI Action | Equivalent CLI |
 |---|---|---|
-| **Scenario 1** | Click Launch | `docker compose --profile streaming-first up -d` |
-| **Scenario 2** | Click Launch | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` |
-| **Scenario 3** | Click Launch | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` |
+| **Scenario 1: Streaming First** | Click Launch | `docker compose --profile streaming-first up -d` |
+| **Scenario 2: Airflow Orchestrated** | Click Launch | `docker compose --profile airflow-orchestrated up -d` |
+| **Scenario 3: Trino SQL Engine** | Click Launch | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` |
+| **Scenario 4: Hudi Comparison** | Click Launch | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` |
 
 The UI reads scenario definitions from `scenarios.yml`, so adding a new scenario only requires editing that file.
 

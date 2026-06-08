@@ -1,9 +1,10 @@
 scenarios:
   - id: scenario-1
-    name: "Delta Lake + Spark"
+    name: "Streaming First"
     description: >
-      Streaming-first pipeline with Delta Lake on S3.
-      Architecture A: streaming runs as Docker container.
+      Architecture A: Streaming pipeline with Delta Lake on S3.
+      Kafka → Spark Structured Streaming → Delta Lake Silver → batch to Gold.
+      No Airflow — the simplest stack.
     profiles: [streaming-first]
     compose_files: [docker-compose.yml]
     env_file: .env.scenario-1
@@ -19,10 +20,31 @@ scenarios:
       - postgres
 
   - id: scenario-2
-    name: "Delta Lake + Trino + dbt"
+    name: "Airflow Orchestrated"
     description: >
-      Adds Trino SQL engine and Spark Thrift Server for querying Delta tables directly.
-      Enables SQL analytics. dbt deferred until custom Airflow image.
+      Architecture B: Airflow supervises the streaming pipeline and orchestrates batch.
+      Same Delta Lake pipeline as Streaming First, now with production-grade orchestration.
+    profiles: [airflow-orchestrated]
+    compose_files: [docker-compose.yml]
+    env_file: .env.scenario-1
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+      - airflow
+
+  - id: scenario-3
+    name: "Trino SQL Engine"
+    description: >
+      Adds Trino SQL engine and Spark Thrift Server for querying Delta tables.
+      dbt deferred to Phase 2 (custom Airflow image required).
+      Architecture A + SQL query layer.
     profiles: [streaming-first, trino]
     compose_files:
       - docker-compose.yml
@@ -41,11 +63,11 @@ scenarios:
       - trino
       - spark-thrift
 
-  - id: scenario-3
-    name: "Hudi + Spark"
+  - id: scenario-4
+    name: "Hudi Comparison"
     description: >
-      Lakehouse format comparison. Streaming writes to Hudi tables instead of Delta Lake.
-      Architecture A.
+      Lakehouse format comparison. Streaming writes Apache Hudi tables
+      instead of Delta Lake. Architecture A.
     profiles: [streaming-first]
     compose_files:
       - docker-compose.yml
