@@ -43,7 +43,7 @@ scenarios:
         description: "Run: docker compose exec spark-master /opt/spark/bin/spark-sql --master 'local[*]' ... — then SELECT * FROM delta tables."
       - step: 5
         title: "Run the batch aggregation"
-        description: "Run: docker compose exec spark-master /opt/spark/bin/spark-submit ... batch_job.py. Produces daily_user_activity and product_performance Gold tables."
+        description: "From the Spark Master container: spark-submit --master spark://spark-master:7077 --conf spark.cores.max=1 --conf spark.executor.memory=512m --packages io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 /opt/spark/app/src/batch/batch_job.py"
     profiles: [streaming-first]
     compose_files: [docker-compose.yml]
     env_file: .env.scenario-1
@@ -162,9 +162,12 @@ scenarios:
         title: "See Spark Streaming at work"
         description: "Open Spark Master → click 'ClickstreamStreaming' app."
       - step: 3
+        title: "Confirm data on S3"
+        description: "Run: docker compose exec localstack awslocal s3 ls s3://user-behavior-analytics-silver/clickstream/delta/ --recursive"
+      - step: 4
         title: "Query Delta via Trino"
         description: "Open Trino UI or use trino-cli. Catalog 'delta' maps to the S3 Delta tables."
-      - step: 4
+      - step: 5
         title: "Query via Spark Thrift"
         description: "Connect any JDBC/ODBC tool to localhost:10000. Spark SQL with Delta extensions."
     profiles: [streaming-first, trino]

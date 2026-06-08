@@ -265,96 +265,46 @@ Airflow has been upgraded directly from 2.3.0 to **3.2.0**, which includes `@con
 
 ## Architecture Scenario Roadmap
 
-### Scenario 1: Delta Lake + Spark (Current)
+### Scenario 1: Streaming First (Delta Lake + Spark)
 
-```mermaid
-graph TD
-    A[Kafka Producer] --> B[Kafka]
-    B --> C[Spark Streaming]
-    C --> D["Delta Lake (Silver)"]
-    D --> E["Spark Batch"]
-    E --> F["Delta Lake (Gold)"]
-    F --> G["Redshift (deferred)"]
-    G --> H[BI Tools]
-```
+**Status:** Working — scenario switchable via Web UI or CLI
 
+### Scenario 2: Airflow Orchestrated (Delta Lake + Airflow)
 
+**Status:** Working — Airflow supervises streaming and orchestrates batch
 
-**Status:** Working (minus Redshift sync)
-
-
-| Milestone                                                  | Status   | Description                                         |
-| ---------------------------------------------------------- | -------- | --------------------------------------------------- |
-| Core pipeline (Producer -> Kafka -> Spark -> Delta Silver) | Done     | Events flowing end-to-end                           |
-| Batch aggregation (Silver -> Gold)                         | Done     | On-demand via `docker compose exec`                 |
-| Redshift sync (Gold -> Redshift)                           | Deferred | Needs JDBC driver and LocalStack Redshift config    |
-| BI Tools integration                                       | Future   | Depends on Redshift; could add Metabase or Superset |
-
-
-### Scenario 2: Delta Lake + Trino + dbt
-
-```mermaid
-graph TD
-    A[Kafka Producer] --> B[Kafka]
-    B --> C[Spark Streaming]
-    C --> D["Delta Lake (Silver)"]
-    D --> E[Trino]
-    E --> F[dbt]
-    F --> G["Delta Lake (Gold)"]
-    G --> H["Redshift (deferred)"]
-    H --> I[BI Tools]
-```
-
-
+### Scenario 3: Trino SQL Engine (Delta Lake + Trino + Thrift)
 
 **Status:** Trino catalog ready, Spark Thrift Server deployed. dbt deferred (Phase 2 — needs dbt-spark in custom Airflow image).
 
-
-| Milestone                    | Status      | Description                                                |
-| ---------------------------- | ----------- | ---------------------------------------------------------- |
-| Trino catalog for Delta Lake | Done | `config/trino/catalog/delta.properties` created with S3A/Delta connector |
-| Spark Thrift Server          | Done | Deployed in `compose/scenario-2.yml`, port 10000, healthcheck |
+| Milestone                    | Status | Description |
+| ---------------------------- | ------ | ----------- |
+| Trino catalog for Delta Lake | Done | `config/trino/catalog/delta.properties` with file metastore on S3 |
+| Spark Thrift Server          | Done | `compose/scenario-2.yml`, ivy2-cache, healthcheck on port 10000 |
 | dbt models and tests         | Not started | Fix `profiles.yml`, install dbt-spark in custom Airflow image |
-| dbt-driven Gold layer        | Not started | Use dbt to transform Silver -> Gold instead of Spark batch |
-| Redshift sync                | Not started | Same as Scenario 1 |
+| dbt-driven Gold layer        | Not started | Use dbt to transform Silver → Gold instead of Spark batch |
 
+### Scenario 4: Hudi Comparison (Hudi + Spark)
 
-### Scenario 3: Hudi instead of Delta Lake
+**Status:** Implemented — STORAGE_FORMAT parameterization, Hudi packages, compose override. End-to-end tested.
 
-```mermaid
-graph TD
-    A[Kafka Producer] --> B[Kafka]
-    B --> C[Spark Streaming]
-    C --> D["Hudi (Silver)"]
-    D --> E[Spark Batch]
-    E --> F["Hudi (Gold)"]
-    F --> G[...]
-```
-
-
-
-**Status:** Implemented — STORAGE_FORMAT parameterization in streaming and batch jobs, Hudi packages configured, compose/scenario-3.yml override. Needs end-to-end testing.
-
-
-| Milestone                | Status      | Description                                                    |
-| ------------------------ | ----------- | -------------------------------------------------------------- |
+| Milestone                | Status | Description |
+| ------------------------ | ------ | ----------- |
 | Hudi streaming write     | Done | STORAGE_FORMAT env var routes to Hudi writeStream config |
 | Hudi Maven packages      | Done | `hudi-spark3.5-bundle_2.12:0.15.0` in compose/scenario-3.yml |
 | Hudi batch aggregation   | Done | batch_job.py parameterized via STORAGE_FORMAT |
 | Hudi timeline management | Not started | Configure compaction strategy, explore timeline API |
 
+### Orchestration Patterns
 
-### Orchestration Architectures
+The project supports different orchestration approaches across scenarios (see [architecture-guide.md](architecture-guide.md) for full details):
 
-In addition to storage format scenarios, the project supports different **orchestration patterns** (see [architecture-guide.md](architecture-guide.md) for full details):
-
-
-| Architecture                   | Description                                                                    | Status                                                   |
-| ------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| **A: Streaming-First**         | Streaming runs as Docker containers; batch triggered manually                  | **Working** (`--profile streaming-first`)                |
-| **B: Hybrid with Airflow**     | Streaming runs as a container; Airflow supervises it and orchestrates batch    | **Working** (`--profile airflow-orchestrated`)           |
-| B-alt: Full Airflow submission | Airflow submits streaming via `spark-submit --deploy-mode cluster --supervise` | Not possible on Spark Standalone (see section above)     |
-| **D: Event-Driven**            | Airflow KafkaSensor triggers processing on data arrival                        | Deferred (needs `apache-airflow-providers-apache-kafka`) |
+| Pattern | Description | Status |
+| --- | --- | --- |
+| Manual (no orchestrator) | Batch triggered via `docker compose exec spark-master spark-submit` | **Working** (Scenarios 1, 3, 4) |
+| Airflow Hybrid | Streaming container + Airflow supervision and batch orchestration | **Working** (Scenario 2) |
+| Full Airflow submission | Airflow submits streaming via `spark-submit --deploy-mode cluster --supervise` | Not possible on Spark Standalone |
+| Event-Driven (KafkaSensor) | Airflow KafkaSensor triggers processing on data arrival | Deferred (needs Kafka provider) |
 
 
 ### Future Scenarios (Ideas)
