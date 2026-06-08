@@ -1,0 +1,310 @@
+layers:
+  - id: ingestion
+    name: "Ingestion"
+    description: "How data enters the pipeline"
+    tools:
+      - id: kafka
+        name: "Apache Kafka"
+        status: implemented
+        description: "Real-time event streaming and message broker"
+        scenarios: [scenario-1, scenario-2, scenario-3, scenario-4]
+        link: "http://localhost:9033"
+      - id: debezium
+        name: "Debezium + Connect"
+        status: future
+        description: "Change Data Capture from relational databases"
+        scenarios: []
+        dependencies: "feat/component-debezium"
+      - id: redpanda
+        name: "Redpanda"
+        status: future
+        description: "Kafka-API-compatible streaming platform, no ZooKeeper"
+        scenarios: []
+
+  - id: stream-processing
+    name: "Stream Processing"
+    description: "Real-time data transformation"
+    tools:
+      - id: spark-streaming
+        name: "Spark Structured Streaming"
+        status: implemented
+        description: "Micro-batch stream processing with SQL and DataFrame APIs"
+        scenarios: [scenario-1, scenario-2, scenario-3, scenario-4]
+        link: "http://localhost:4040"
+      - id: flink
+        name: "Apache Flink"
+        status: future
+        description: "Distributed stream processing with exactly-once semantics"
+        scenarios: []
+        dependencies: "feat/component-flink"
+      - id: risingwave
+        name: "RisingWave"
+        status: future
+        description: "Streaming database with PostgreSQL wire compatibility"
+        scenarios: []
+
+  - id: storage-format
+    name: "Storage Format"
+    description: "Table format for ACID transactions on data lakes"
+    tools:
+      - id: delta
+        name: "Delta Lake"
+        status: implemented
+        description: "ACID transactions, time travel, schema enforcement"
+        scenarios: [scenario-1, scenario-2, scenario-3]
+      - id: hudi
+        name: "Apache Hudi"
+        status: implemented
+        description: "Upserts, incremental processing, record-level indexing"
+        scenarios: [scenario-4]
+      - id: iceberg
+        name: "Apache Iceberg"
+        status: future
+        description: "High-performance table format with partition evolution"
+        scenarios: []
+        dependencies: "feat/component-iceberg"
+
+  - id: object-storage
+    name: "Object Storage"
+    description: "Data lake physical storage layer"
+    tools:
+      - id: localstack
+        name: "LocalStack S3"
+        status: implemented
+        description: "Local AWS S3 emulation for development"
+        scenarios: [scenario-1, scenario-2, scenario-3, scenario-4]
+      - id: minio
+        name: "MinIO"
+        status: future
+        description: "S3-compatible object storage for multi-cloud simulations"
+        scenarios: []
+
+  - id: orchestration
+    name: "Orchestration"
+    description: "Workflow scheduling and pipeline management"
+    tools:
+      - id: manual
+        name: "Manual (docker compose exec)"
+        status: implemented
+        description: "No orchestrator — run batch jobs manually"
+        scenarios: [scenario-1, scenario-3, scenario-4]
+      - id: airflow
+        name: "Apache Airflow"
+        status: implemented
+        description: "DAG-based scheduling, streaming supervision, batch orchestration"
+        scenarios: [scenario-2]
+        link: "http://localhost:8081"
+      - id: prefect
+        name: "Prefect"
+        status: future
+        description: "Modern Pythonic workflow orchestration with dynamic DAGs"
+        scenarios: []
+      - id: dagster
+        name: "Dagster"
+        status: future
+        description: "Asset-based orchestration with software-defined assets"
+        scenarios: []
+
+  - id: query-engine
+    name: "Query Engine"
+    description: "SQL analytics and ad-hoc queries"
+    tools:
+      - id: spark-sql
+        name: "spark-sql"
+        status: implemented
+        description: "Spark SQL REPL for direct Delta table queries"
+        scenarios: [scenario-1, scenario-2, scenario-4]
+      - id: trino
+        name: "Trino"
+        status: implemented
+        description: "Distributed SQL query engine with Delta Lake connector"
+        scenarios: [scenario-3]
+        link: "http://localhost:8082"
+      - id: spark-thrift
+        name: "Spark Thrift Server"
+        status: implemented
+        description: "JDBC/ODBC SQL endpoint for BI tools and dbt"
+        scenarios: [scenario-3]
+      - id: duckdb
+        name: "DuckDB"
+        status: future
+        description: "In-process OLAP engine, zero config, reads Parquet/Delta directly"
+        scenarios: []
+
+  - id: transform
+    name: "Transform"
+    description: "Data modeling and transformation logic"
+    tools:
+      - id: spark-submit
+        name: "spark-submit"
+        status: implemented
+        description: "Spark batch jobs for Silver → Gold aggregations"
+        scenarios: [scenario-1, scenario-3, scenario-4]
+      - id: airflow-dags
+        name: "Airflow DAGs"
+        status: implemented
+        description: "Orchestrated batch jobs with verification steps"
+        scenarios: [scenario-2]
+      - id: dbt
+        name: "dbt"
+        status: future
+        description: "Analytics engineering — SQL models with testing and docs"
+        scenarios: []
+        dependencies: "feat/component-dbt"
+
+  - id: bi
+    name: "BI / Dashboard"
+    description: "Data visualization and business intelligence"
+    tools:
+      - id: metabase
+        name: "Metabase"
+        status: future
+        description: "Self-serve BI — ask questions without SQL, embeddable dashboards"
+        scenarios: []
+        dependencies: "feat/component-metabase"
+      - id: superset
+        name: "Apache Superset"
+        status: future
+        description: "Full-featured data exploration and visualization platform"
+        scenarios: []
+      - id: grafana
+        name: "Grafana"
+        status: future
+        description: "Observability dashboards with plugin ecosystem"
+        scenarios: []
+
+  - id: governance
+    name: "Governance / Lineage"
+    description: "Metadata management and data lineage"
+    tools:
+      - id: openlineage
+        name: "OpenLineage + Marquez"
+        status: future
+        description: "Open standard for data lineage collection and visualization"
+        scenarios: []
+        dependencies: "feat/component-openlineage"
+      - id: datahub
+        name: "DataHub"
+        status: future
+        description: "End-to-end metadata platform with 50+ integrations"
+        scenarios: []
+      - id: openmetadata
+        name: "OpenMetadata"
+        status: future
+        description: "Unified metadata, quality, and observability platform"
+        scenarios: []
+
+  - id: data-quality
+    name: "Data Quality"
+    description: "Validation, profiling, and monitoring"
+    tools:
+      - id: great-expectations
+        name: "Great Expectations"
+        status: future
+        description: "Expectations-as-code — profiling, validation, auto-generated docs"
+        scenarios: []
+      - id: soda
+        name: "Soda Core"
+        status: future
+        description: "Declarative data quality checks in YAML"
+        scenarios: []
+
+  - id: exploration
+    name: "Exploration"
+    description: "Interactive notebooks and experimentation"
+    tools:
+      - id: jupyter
+        name: "JupyterLab"
+        status: future
+        description: "Interactive notebooks with PySpark kernel and 40+ languages"
+        scenarios: []
+        dependencies: "feat/component-jupyter"
+      - id: zeppelin
+        name: "Apache Zeppelin"
+        status: future
+        description: "Multi-purpose notebook with built-in charts and Spark support"
+        scenarios: []
+
+# ─── Reference Stacks (all-in-one platforms) ──────────────────────────────
+
+reference_stacks:
+  - id: databricks
+    name: "Databricks"
+    color: "#FF6B35"
+    layers:
+      - layer_id: ingestion
+        tool: "Auto Loader / Delta Live Tables"
+      - layer_id: stream-processing
+        tool: "Spark Structured Streaming (Photon)"
+      - layer_id: storage-format
+        tool: "Delta Lake"
+      - layer_id: object-storage
+        tool: "DBFS"
+      - layer_id: orchestration
+        tool: "Databricks Workflows"
+      - layer_id: query-engine
+        tool: "Databricks SQL (Photon)"
+      - layer_id: transform
+        tool: "Delta Live Tables / Notebooks"
+      - layer_id: bi
+        tool: "Databricks Dashboards / AI-BI"
+      - layer_id: governance
+        tool: "Unity Catalog"
+      - layer_id: data-quality
+        tool: "Delta Live Tables Expectations"
+      - layer_id: exploration
+        tool: "Databricks Notebooks"
+
+  - id: fabric
+    name: "Microsoft Fabric"
+    color: "#4B53BC"
+    layers:
+      - layer_id: ingestion
+        tool: "Data Factory / Eventstreams"
+      - layer_id: stream-processing
+        tool: "Eventstreams (Real-Time Intelligence)"
+      - layer_id: storage-format
+        tool: "OneLake (Delta-Parquet)"
+      - layer_id: object-storage
+        tool: "OneLake"
+      - layer_id: orchestration
+        tool: "Data Factory Pipelines"
+      - layer_id: query-engine
+        tool: "SQL Analytics Endpoint"
+      - layer_id: transform
+        tool: "Dataflows Gen2 / Notebooks"
+      - layer_id: bi
+        tool: "Power BI"
+      - layer_id: governance
+        tool: "Microsoft Purview"
+      - layer_id: data-quality
+        tool: "Purview Data Quality"
+      - layer_id: exploration
+        tool: "Fabric Notebooks"
+
+  - id: aws
+    name: "AWS"
+    color: "#FF9900"
+    layers:
+      - layer_id: ingestion
+        tool: "Kinesis / MSK"
+      - layer_id: stream-processing
+        tool: "Kinesis Data Analytics (Flink)"
+      - layer_id: storage-format
+        tool: "S3 + Glue Catalog"
+      - layer_id: object-storage
+        tool: "S3"
+      - layer_id: orchestration
+        tool: "MWAA / Step Functions"
+      - layer_id: query-engine
+        tool: "Athena"
+      - layer_id: transform
+        tool: "Glue ETL / EMR"
+      - layer_id: bi
+        tool: "QuickSight"
+      - layer_id: governance
+        tool: "Glue Catalog / Lake Formation"
+      - layer_id: data-quality
+        tool: "Glue Data Quality"
+      - layer_id: exploration
+        tool: "SageMaker / EMR Studio"

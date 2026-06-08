@@ -35,6 +35,7 @@ from pydantic import BaseModel
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 SCENARIOS_FILE = BASE_DIR / "scenarios.yml"
+LAYERS_FILE = BASE_DIR / "layers.yml"
 DEFAULT_PORT = int(os.environ.get("PLAYGROUND_PORT", "8084"))
 
 # ---------------------------------------------------------------------------
@@ -83,6 +84,20 @@ SCENARIOS: List[ScenarioModel] = _load_scenarios()
 active_scenario_id: Optional[str] = None
 
 # ---------------------------------------------------------------------------
+# Load layers (layer-based scenario explorer)
+# ---------------------------------------------------------------------------
+
+
+def _load_layers():
+    if not LAYERS_FILE.exists():
+        return {"layers": [], "reference_stacks": []}
+    with LAYERS_FILE.open() as f:
+        return yaml.safe_load(f)
+
+
+LAYERS_DATA = _load_layers()
+
+# ---------------------------------------------------------------------------
 # Compose helpers
 # ---------------------------------------------------------------------------
 
@@ -116,6 +131,17 @@ async def index(request: Request):
         "request": request,
         "scenarios": [s.model_dump() for s in SCENARIOS],
         "active_scenario_id": active_scenario_id or "",
+    })
+
+
+@app.get("/layers", response_class=HTMLResponse)
+async def layer_view(request: Request):
+    return templates.TemplateResponse("layers.html", {
+        "request": request,
+        "scenarios": [s.model_dump() for s in SCENARIOS],
+        "active_scenario_id": active_scenario_id or "",
+        "layers": LAYERS_DATA.get("layers", []),
+        "reference_stacks": LAYERS_DATA.get("reference_stacks", []),
     })
 
 
