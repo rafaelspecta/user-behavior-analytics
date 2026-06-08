@@ -83,12 +83,13 @@ layers:
     name: "Orchestration"
     description: "Workflow scheduling and pipeline management"
     tools:
-      - id: manual
-        name: "Manual (docker compose exec)"
-        status: implemented
-        description: "No orchestrator — run batch jobs manually"
-        scenarios: [scenario-1, scenario-3, scenario-4]
       - id: airflow
+        name: "Apache Airflow"
+        status: implemented
+        description: "DAG-based scheduling, streaming supervision, batch orchestration"
+        scenarios: [scenario-2]
+        link: "http://localhost:8081"
+      - id: prefect
         name: "Apache Airflow"
         status: implemented
         description: "DAG-based scheduling, streaming supervision, batch orchestration"
