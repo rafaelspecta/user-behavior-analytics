@@ -350,6 +350,7 @@
       try {
         await fetch('/api/stop-all', { method: 'POST' });
         t.textContent = 'All stopped';
+        await detectRunning();
       } catch(e) { t.textContent = 'Error: ' + e.message; }
       setTimeout(() => t.classList.remove('show'), 2500);
     }
@@ -358,8 +359,8 @@
       try {
         const res = await fetch('/api/active-scenario');
         const data = await res.json();
-        if (data.scenario_id && data.scenario_id !== selectedScenario) {
-          selectedScenario = data.scenario_id;
+        if (data.scenario_id !== selectedScenario) {
+          selectedScenario = data.scenario_id || null;
           render();
         }
       } catch (e) {}
