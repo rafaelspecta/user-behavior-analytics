@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Architecture Playground — Layer View</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Oxygen, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 1.5rem 1rem .75rem;
+      text-align: center;
+    }
+    header h1 { margin: 0; font-size: 1.6rem; }
+    header p { margin: .15rem 0 0; color: var(--muted); font-size: .9rem; }
+    .nav-tabs {
+      max-width: 1300px;
+      margin: 0 auto .75rem;
+      padding: 0 1rem;
+      display: flex; gap: 0; align-items: center;
+    }
+    .nav-tabs a {
+      padding: .45rem 1.1rem;
+      border-radius: var(--radius) var(--radius) 0 0;
+      text-decoration: none;
+      font-size: .85rem; font-weight: 600;
+      border: 1px solid transparent;
+      background: #1a2332; color: var(--muted);
+    }
+    .nav-tabs a.active { background: var(--card-bg); color: var(--text); border-color: #334155; border-bottom-color: var(--card-bg); }
+    .nav-tabs .spacer { flex: 1; }
+    .nav-tabs button {
+      padding: .4rem .85rem; border-radius: var(--radius); border: none; cursor: pointer; font-weight: 600; font-size: .82rem;
+    }
+    .btn-stop { background: var(--danger); color: #fff; }
+    .btn-refresh { background: #334155; color: var(--text); }
+
+    .main-layout {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 0 1rem 2rem;
+      display: flex; gap: 1rem;
+    }
+    .sidebar {
+      width: 200px; flex-shrink: 0;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      border: 1px solid #334155;
+      padding: 1rem .75rem;
+      display: flex; flex-direction: column; gap: .4rem;
+    }
+    .sidebar h3 { margin: 0 0 .25rem; font-size: .85rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .sidebar .scenario-btn {
+      display: block; width: 100%; text-align: left;
+      padding: .45rem .65rem;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: .82rem;
+      font-family: inherit;
+      transition: all .15s ease;
+    }
+    .sidebar .scenario-btn:hover { background: #0f172a; color: var(--text); }
+    .sidebar .scenario-btn.active { background: rgba(56,189,248,.1); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+    .sidebar .dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: .4rem; background: var(--muted);
+    }
+    .sidebar .scenario-btn.active .dot { background: var(--success); box-shadow: 0 0 4px rgba(34,197,94,.5); }
+
+    .content-area { flex: 1; min-width: 0; }
+
+    .stack-controls {
+      display: flex; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap; align-items: center;
+    }
+    .stack-controls .spacer { flex: 1; }
+    .legend {
+      display: flex; gap: .85rem; align-items: center;
+      font-size: .72rem; color: var(--muted);
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: .3rem;
+    }
+    .legend-dot {
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+    }
+    .legend-dot.selected { background: var(--success); box-shadow: 0 0 4px rgba(34,197,94,.5); }
+    .legend-dot.available { background: var(--accent); }
+    .legend-dot.future { background: var(--muted); opacity: .5; }
+    .legend-dot-none { width: 9px; height: 9px; flex-shrink: 0; }
+    .stack-checkbox {
+      display: flex; align-items: center; gap: .35rem;
+      font-size: .8rem; color: var(--muted);
+      cursor: pointer; user-select: none;
+    }
+    .stack-checkbox input { accent-color: var(--accent); cursor: pointer; }
+    .stack-checkbox .swatch {
+      width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+    }
+
+    .layers-table {
+      width: 100%;
+      border-collapse: separate; border-spacing: 0;
+      border: 1px solid #334155;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .layers-table thead th {
+      background: #1a2332;
+      padding: .5rem .75rem;
+      font-size: .78rem; font-weight: 600;
+      color: var(--muted);
+      text-align: left;
+      border-bottom: 1px solid #334155;
+      white-space: nowrap;
+    }
+    .layers-table thead th.col-layer { min-width: 140px; }
+    .layers-table thead th.col-active { min-width: 280px; }
+    .layers-table thead th.col-stack { min-width: 160px; }
+
+    .layers-table tbody td {
+      padding: .55rem .75rem;
+      border-bottom: 1px solid #1a2332;
+      vertical-align: middle;
+      font-size: .82rem;
+    }
+    .layers-table tbody tr:last-child td { border-bottom: none; }
+    .layers-table tbody tr { transition: background .15s ease; }
+    .layers-table tbody tr.scenario-active { background: rgba(56,189,248,.04); }
+
+    .layer-name {
+      font-weight: 600; color: var(--text);
+    }
+    .layer-desc {
+      font-size: .72rem; color: var(--muted); display: block; margin-top: .1rem;
+    }
+
+    .tools-row {
+      display: flex; gap: .35rem; flex-wrap: wrap;
+    }
+    .tool-pill {
+      display: inline-flex; align-items: center; gap: .25rem;
+      padding: .2rem .55rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      border: 1px solid;
+      white-space: nowrap;
+      transition: all .2s ease;
+      cursor: default;
+    }
+    .tool-pill.implemented {
+      background: rgba(56,189,248,.1);
+      border-color: rgba(56,189,248,.3);
+      color: var(--accent);
+    }
+    .tool-pill.implemented.highlight {
+      background: rgba(34,197,94,.2);
+      border-color: var(--success);
+      color: var(--success);
+      box-shadow: 0 0 8px rgba(34,197,94,.35);
+    }
+    .tool-pill.future {
+      background: transparent;
+      border-color: rgba(148,163,184,.2);
+      border-style: dashed;
+      color: var(--muted);
+      opacity: .55;
+    }
+    .tool-pill a {
+      color: inherit; text-decoration: none;
+    }
+    .tool-pill .tool-link {
+      font-size: .65rem; opacity: .6;
+    }
+    .tool-pill:hover { transform: translateY(-1px); }
+
+    .stack-pill {
+      display: inline-block;
+      padding: .2rem .55rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      color: #fff;
+      white-space: nowrap;
+    }
+
+    #global-toast {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      background: var(--card-bg); color: var(--text); padding: .75rem 1.25rem;
+      border-radius: var(--radius); border: 1px solid #334155;
+      box-shadow: 0 10px 30px rgba(0,0,0,.3);
+      opacity: 0; pointer-events: none; transition: opacity .3s ease; z-index: 1000;
+    }
+    #global-toast.show { opacity: 1; pointer-events: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Data Architecture Playground</h1>
+    <p>Explore layers, tools, and platform comparisons</p>
+  </header>
+
+  <div class="nav-tabs">
+    <a href="/">Card View</a>
+    <a href="/layers" class="active">Layer View</a>
+    <span class="spacer"></span>
+    <button class="btn-stop" onclick="stopAll()">Stop All</button>
+    <button class="btn-refresh" onclick="location.reload()">Refresh</button>
+  </div>
+
+  <div class="main-layout">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="content-area">
+      <div class="stack-controls" id="stack-controls"></div>
+      <table class="layers-table">
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="global-toast"></div>
+
+  <script>
+    const layers = {{ layers | tojson | safe }};
+    const scenarios = {{ scenarios | tojson | safe }};
+    const refStacks = {{ reference_stacks | tojson | safe }};
+    const activeScenarioId = {{ (active_scenario_id or None) | tojson | safe }};
+
+    let selectedScenario = null;
+    let enabledStacks = new Set();
+
+    function h(str) { return (str || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    function render() {
+      // Sidebar
+      const sb = document.getElementById('sidebar');
+      sb.innerHTML = `
+        <h3>Scenarios</h3>
+        ${scenarios.map(s => `
+          <button class="scenario-btn ${s.id === selectedScenario ? 'active' : ''}"
+                  onclick="select('${s.id}')">
+            <span class="dot"></span>${h(s.name)}
+          </button>
+        `).join('')}
+        <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #334155">
+          <button class="scenario-btn" onclick="select(null)" style="${!selectedScenario ? 'border-color:var(--accent);color:var(--accent);font-weight:600' : ''}">
+            Show Available
+          </button>
+        </div>`;
+
+      // Stack controls + legend
+      const sc = document.getElementById('stack-controls');
+      sc.innerHTML = refStacks.map(rs => `
+        <label class="stack-checkbox">
+          <input type="checkbox" data-stack="${rs.id}"
+                 ${enabledStacks.has(rs.id) ? 'checked' : ''}
+                 onchange="toggleStack('${rs.id}', this.checked)">
+          <span class="swatch" style="background:${rs.color}"></span>
+          ${h(rs.name)}
+        </label>
+      `).join('') + `
+        <span class="spacer"></span>
+        <div class="legend">
+          <span class="legend-item" title="Active in the selected scenario — running right now"><span class="legend-dot selected"></span> Selected</span>
+          <span class="legend-item" title="Implemented and available — part of the playground but not used by this scenario"><span class="legend-dot available"></span> Available</span>
+          <span class="legend-item" title="Planned for a future branch — not yet implemented"><span class="legend-dot future"></span> Future</span>
+        </div>`;
+
+      // Table head
+      const head = document.getElementById('table-head');
+      let headCols = '<th class="col-layer">Layer</th><th class="col-active">Active Tools</th>';
+      for (const rs of refStacks) {
+        if (enabledStacks.has(rs.id)) {
+          headCols += `<th class="col-stack" style="background:${rs.color}15;color:${rs.color}">${h(rs.name)}</th>`;
+        }
+      }
+      head.innerHTML = '<tr>' + headCols + '</tr>';
+
+      // Table body
+      const body = document.getElementById('table-body');
+      body.innerHTML = layers.map(l => {
+        // Which tools are active for this scenario?
+        let activeTools = new Set();
+        if (selectedScenario) {
+          for (const t of l.tools) {
+            if (t.scenarios && t.scenarios.includes(selectedScenario)) {
+              activeTools.add(t.id);
+            }
+          }
+        }
+        const isActive = selectedScenario && activeTools.size > 0;
+
+        // Tool pills
+        const toolsHtml = l.tools.map(t => {
+          const cls = t.status === 'implemented' ? 'implemented' : 'future';
+          const hl = activeTools.has(t.id) ? ' highlight' : '';
+          const link = t.link ? ` <a href="${h(t.link)}" target="_blank" class="tool-link" title="Open ${h(t.name)} UI">↗</a>` : '';
+          const title = `${h(t.name)} — ${h(t.description)}${t.dependencies ? ' (Coming in ' + t.dependencies + ')' : ''}`;
+          return `<span class="tool-pill ${cls}${hl}" title="${title}">${h(t.name)}${link}</span>`;
+        }).join('');
+
+        // Stack columns
+        let stackCols = '';
+        for (const rs of refStacks) {
+          if (!enabledStacks.has(rs.id)) continue;
+          const entry = rs.layers.find(el => el.layer_id === l.id);
+          const toolName = entry ? entry.tool : '—';
+          stackCols += `<td><span class="stack-pill" style="background:${rs.color}">${h(toolName)}</span></td>`;
+        }
+
+        return `<tr class="${isActive ? 'scenario-active' : ''}">
+          <td><span class="layer-name">${h(l.name)}</span><span class="layer-desc">${h(l.description)}</span></td>
+          <td><div class="tools-row">${toolsHtml || '<span style="color:var(--muted);font-size:.78rem">—</span>'}</div></td>
+          ${stackCols}
+        </tr>`;
+      }).join('');
+    }
+
+    function select(id) {
+      selectedScenario = id;
+      render();
+    }
+
+    function toggleStack(id, on) {
+      if (on) enabledStacks.add(id); else enabledStacks.delete(id);
+      render();
+    }
+
+    async function stopAll() {
+      const t = document.getElementById('global-toast');
+      t.textContent = 'Stopping all scenarios...'; t.classList.add('show');
+      try {
+        await fetch('/api/stop-all', { method: 'POST' });
+        t.textContent = 'All stopped';
+        await detectRunning();
+      } catch(e) { t.textContent = 'Error: ' + e.message; }
+      setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    async function detectRunning() {
+      try {
+        const res = await fetch('/api/active-scenario');
+        const data = await res.json();
+        if (data.scenario_id !== selectedScenario) {
+          selectedScenario = data.scenario_id || null;
+          render();
+        }
+      } catch (e) {}
+    }
+
+    render();
+    detectRunning();
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Scenario: Trino + Thrift Server
+# Use: docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d
+# This file ONLY adds the spark-thrift service. All other services come from docker-compose.yml.
+
+services:
+  spark-thrift:
+    image: spark:3.5.3-scala2.12-java17-python3-ubuntu
+    command: ["bash", "-c", "echo 'Waiting for S3 buckets...' && until curl -sf http://localstack:4566/_localstack/init/ready | grep -q SUCCESSFUL; do echo 'Init scripts not done yet...' && sleep 5; done && echo 'S3 buckets ready, starting Thrift Server...' && /opt/spark/sbin/start-thriftserver.sh --master spark://spark-master:7077 --hiveconf hive.server2.thrift.port=10000 --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog --conf spark.hadoop.fs.s3a.endpoint=http://localstack:4566 --conf spark.hadoop.fs.s3a.access.key=test --conf spark.hadoop.fs.s3a.secret.key=test --conf spark.hadoop.fs.s3a.path.style.access=true --packages io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"]
+    ports:
+      - "10000:10000"
+    environment:
+      - SPARK_NO_DAEMONIZE=true
+    depends_on:
+      spark-master:
+        condition: service_started
+      localstack:
+        condition: service_healthy
+      ivy2-cache-init:
+        condition: service_completed_successfully
+    volumes:
+      - ivy2-cache:/tmp/ivy2
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 10000"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s

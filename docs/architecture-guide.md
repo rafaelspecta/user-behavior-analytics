@@ -1,219 +1,144 @@
 # Architecture Guide
 
-This project is designed as a **Data Architecture Playground** where different orchestration and processing patterns can be explored, compared, and composed. This guide documents the available architectures, explains what is currently implemented, and describes how to configure the solution for each pattern.
+This project is a **Data Architecture Playground** — students explore 4 Docker Compose scenarios, compare OSS tools to proprietary platforms, and mix-and-match components. Use the **Scenario Switcher Web UI** (`http://localhost:8084`) for a browser experience, or run Compose commands directly.
 
 ---
 
 ## Table of Contents
 
-- [Current State](#current-state)
-- [Architecture A vs B — what changes](#architecture-a-vs-b--what-changes)
-- [Orchestration Architectures](#orchestration-architectures)
-  - [Architecture A: Streaming-First](#architecture-a-streaming-first)
-  - [Architecture B: Hybrid with Airflow](#architecture-b-hybrid-with-airflow)
-  - [Architecture B-alt: Full Airflow Submission (not runnable on Spark Standalone)](#architecture-b-alt-full-airflow-submission-not-runnable-on-spark-standalone)
-  - [Architecture D: Event-Driven (Kafka-Triggered)](#architecture-d-event-driven-kafka-triggered)
+- [Scenarios](#scenarios)
+- [Architecture Overview](#architecture-overview)
+- [Orchestration](#orchestration)
+  - [Airflow-Orchestrated (Scenario 2)](#airflow-orchestrated-scenario-2)
+  - [Self-Healing Supervisor DAG](#self-healing-supervisor-dag)
+  - [Why Airflow Cannot Fully Submit Streaming on Standalone](#why-airflow-cannot-fully-submit-streaming-on-standalone)
 - [Storage Format Architectures](#storage-format-architectures)
-- [How to Switch Architectures](#how-to-switch-architectures)
+- [Layer View](#layer-view)
+- [How to Switch Scenarios](#how-to-switch-scenarios)
   - [Profile-to-service mapping](#profile-to-service-mapping)
 - [Related Documentation](#related-documentation)
 
 ---
 
-## Current State
+## Scenarios
 
-Two orchestration architectures are runnable today via Docker Compose profiles:
+Four scenarios are available — each introduces one new concept in the data stack:
 
-- **Architecture A (Streaming-First)** — `docker compose --profile streaming-first up -d`
-- **Architecture B (Hybrid with Airflow)** — `docker compose --profile airflow-orchestrated up -d`
+| Scenario | What's New | Compose Command |
+|---|---|---|
+| **Streaming First** | Baseline: Delta Lake + Spark, no Airflow | `docker compose --profile streaming-first up -d` |
+| **Airflow Orchestrated** | Airflow for streaming supervision + batch scheduling | `docker compose --profile airflow-orchestrated up -d` |
+| **Trino SQL Engine** | Trino + Spark Thrift Server for SQL analytics | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` |
+| **Hudi Comparison** | Apache Hudi instead of Delta Lake | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` |
 
-Both architectures share the same data pipeline containers (`producer`, `streaming-job`). The only difference is whether Airflow runs alongside them to supervise streaming and orchestrate batch.
+All scenarios share the same core pipeline: **Producer → Kafka → Spark Structured Streaming → Object Storage (S3)**. What differs is the orchestration layer, the query engine, and the storage format.
 
-```
-Producer (Python)  →  Kafka  →  Spark Structured Streaming  →  Delta Lake Silver (S3)
-                                                                      │
-                                                               Spark Batch
-                                                                      │
-                                                               Delta Lake Gold (S3)
-```
-
-In Architecture A the batch step is triggered manually. In Architecture B, Airflow triggers it and also supervises the streaming container. Two more architectures (full Airflow submission, event-driven) are documented below for comparison but are not runnable on the current Spark Standalone cluster.
+> **Prefer a browser?** Run `pip install -r requirements-web.txt && python playground_web.py` then open [http://localhost:8084](http://localhost:8084). The **Card View** lets you launch and inspect scenarios; the **Layer View** visualizes all 11 architecture layers with tool selection and platform comparisons. See [README.md](../README.md) for details.
 
 ---
 
-## Architecture A vs B — what changes
+## Architecture Overview
 
-This is the canonical side-by-side view of the two runnable architectures. Individual architecture sections below only add details that are specific to that architecture.
+All scenarios share the same core data pipeline containers (`producer`, `streaming-job`, `spark-master`, `spark-worker`, Kafka, LocalStack, Postgres). Each scenario layers on top:
+
+```
+Producer (Python)  →  Kafka  →  Spark Structured Streaming  →  Storage on S3 (Delta or Hudi)
+                                                                       │
+                                                           Batch / SQL / Orchestration
+                                                                       │
+                                                                   Gold Layer
+```
+
+- **Streaming First**: batch triggered manually via `docker compose exec spark-master spark-submit`
+- **Airflow Orchestrated**: Airflow runs the batch DAG and supervises streaming
+- **Trino SQL Engine**: adds Trino + Spark Thrift for SQL queries
+- **Hudi Comparison**: swaps storage format to Apache Hudi
+
+---
+
+## Orchestration
+
+### Airflow-Orchestrated (Scenario 2)
+
+Scenario 2 runs the same streaming container as Scenario 1, but Airflow is the operator:
+
+- **`clickstream_streaming_supervisor` DAG** (every 5 min) — checks the Spark Master REST API; if no streaming app is active, restarts the `streaming-job` container via the Docker Engine API
+- **`clickstream_batch` DAG** (manual trigger) — runs `spark-submit` from inside Airflow to aggregate Silver → Gold, then verifies Gold objects in S3
+- **`pipeline_health_monitor` DAG** (every 5 min) — watches Kafka and S3
+
+**Configuration:** `docker compose --profile airflow-orchestrated up -d`. See [`infrastructure.md`](infrastructure.md) for the custom Airflow image and DAG details.
+
+### Self-Healing Supervisor DAG
 
 ```mermaid
-graph TB
-    subgraph archA ["Architecture A: Streaming-First"]
-        direction TB
-        PA[Producer Container] -->|events| KA[Kafka]
-        KA --> SSA[Streaming Job Container]
-        SSA --> SA["Delta Silver (S3)"]
-        SA -->|"manual spark-submit"| GA["Delta Gold (S3)"]
-    end
-
-    subgraph archB ["Architecture B: Hybrid with Airflow"]
-        direction TB
-        PB[Producer Container] -->|events| KB[Kafka]
-        KB --> SSB[Streaming Job Container]
-        SSB --> SB["Delta Silver (S3)"]
-        SB -->|"Airflow spark-submit"| GB["Delta Gold (S3)"]
-        AFB[Airflow]
-        AFB -.->|"monitors + restarts"| SSB
-        AFB -->|"orchestrates batch"| GB
-    end
+graph LR
+    CH["check_streaming_health (Python)"] -->|"FAILED: app not found"| RS["restart_streaming_container (Bash, ALL_FAILED)"]
+    RS --> VR["verify_recovery (Bash, ALL_DONE, sleep 90s)"]
+    CH -->|"SUCCESS: app is alive"| VR
 ```
 
+The supervisor DAG uses the bind-mounted `/var/run/docker.sock` to restart the streaming-job container. This is the "Hybrid" pattern: the streaming container is self-managed, and Airflow is an external watcher (not the launcher).
 
+### Why Airflow Cannot Fully Submit Streaming on Standalone
 
----
+On Spark Standalone, PySpark applications are blocked from `--deploy-mode cluster`: *"Cluster deploy mode is currently not supported for python applications on standalone clusters."* And `--deploy-mode client` would run the driver inside Airflow, with `awaitTermination()` blocking the task forever.
 
-## Orchestration Architectures
+This is a teaching point: **the orchestration pattern you can use is constrained by the cluster manager**. On YARN or Kubernetes, full Airflow submission would be possible; on Standalone, the Hybrid pattern is what you get.
 
-### Architecture A: Streaming-First
-
-**How it works:**
-
-- The streaming job runs as a long-lived Docker container (`streaming-job` service) and starts automatically with the profile.
-- Batch aggregation (Silver → Gold) is triggered manually via `docker exec`.
-- No Airflow is running; health checks are performed by the user on demand.
-
-**When to use this pattern:**
-
-- Real-time data must be processed with minimal latency.
-- The streaming job should survive orchestration-layer outages.
-- This is how Netflix, Uber, and LinkedIn run their streaming workloads.
-
-**Trade-offs:**
-
-
-| Advantage                           | Disadvantage                                              |
-| ----------------------------------- | --------------------------------------------------------- |
-| Simplest to set up                  | No centralized orchestration                              |
-| Low latency                         | Batch jobs must be triggered manually                     |
-| Streaming survives Airflow downtime | Less visibility into pipeline health from a single UI     |
-| No custom Airflow image needed      | Streaming job restart requires manual Docker intervention |
-
-
-**Configuration:** `docker compose --profile streaming-first up -d`.
-
----
-
-### Architecture B: Hybrid with Airflow
-
-This is what the industry commonly calls the "recommended for production" pattern: keep the streaming layer self-managed, let Airflow own batch and be a supervisor for streaming.
-
-**How it works:**
-
-- The streaming job still runs as a long-lived Docker container (same `streaming-job` service as Architecture A).
-- `clickstream_streaming_supervisor` DAG (every 5 minutes) queries the Spark Master REST API. If the streaming application is missing, it calls the Docker Engine API through the bind-mounted `/var/run/docker.sock` and restarts the container.
-- `clickstream_batch` DAG (manual trigger or cron) runs `spark-submit` from within Airflow to aggregate Silver → Gold, then verifies the Gold-layer objects in S3.
-- `pipeline_health_monitor` DAG continues to watch Kafka and S3 (Spark streaming health moved to the supervisor DAG to avoid duplicate 5-minute checks).
-
-**Why not submit everything from Airflow?** See "Architecture B-alt" below.
-
-**When to use this pattern:**
-
-- You want a single UI to view batch orchestration, task logs, and pipeline history.
-- Streaming must be resilient to Airflow outages but should be restarted automatically when it dies.
-- Team already treats Airflow as the standard orchestration tool.
-
-**Trade-offs:**
-
-
-| Advantage                                                | Disadvantage                                                  |
-| -------------------------------------------------------- | ------------------------------------------------------------- |
-| Centralized batch orchestration with task history        | Custom Airflow image (Java 17 + Spark 3.5.3) required         |
-| Streaming survives Airflow outages                       | Docker socket must be bind-mounted into the Airflow container |
-| Automatic streaming recovery via supervision DAG         | Two systems to monitor (Docker + Airflow)                     |
-| `spark-submit` from Airflow reuses the shared ivy2 cache | —                                                             |
-
-
-**Configuration:** `docker compose --profile airflow-orchestrated up -d`. See [infrastructure.md](infrastructure.md) for the custom image and DAG details.
-
----
-
-### Architecture B-alt: Full Airflow Submission (not runnable on Spark Standalone)
-
-A tempting alternative would be for Airflow to submit the streaming job itself via `spark-submit --deploy-mode cluster --supervise`, so the streaming task appears in Airflow's DAG graph. On **YARN** or **Kubernetes** this is the standard approach. On **Spark Standalone** (what this playground runs) it is simply not possible:
-
-- PySpark applications are explicitly blocked from `--deploy-mode cluster` on the Standalone cluster manager: *"Cluster deploy mode is currently not supported for python applications on standalone clusters."* This limitation is permanent for Standalone.
-- `--deploy-mode client` would run the driver inside the Airflow task, and `streaming_job.py` calls `awaitTermination()` — so the Airflow task would block forever and never mark the DAG run complete.
-
-This is itself a teaching point: **the orchestration architecture you can pick is constrained by the cluster manager you have**. Running on YARN or Kubernetes would unlock this pattern; on Standalone, the Hybrid pattern (Architecture B) is what you get.
-
----
-
-### Architecture D: Event-Driven (Kafka-Triggered)
-
-```mermaid
-graph TD
-    subgraph kafkaBox [Kafka]
-        K["Kafka Topic: clickstream-events"]
-    end
-    subgraph airflowBox [Airflow]
-        KS["KafkaSensor (waits for messages)"] -->|triggers| BJ[Batch Processing]
-        BJ --> V[Validate]
-        V --> R[Report]
-    end
-    K -->|sensor polls| KS
-```
-
-
-
-**How it works:**
-
-- An Airflow KafkaSensor watches the Kafka topic for new messages.
-- When messages arrive (or a threshold is met), the DAG triggers downstream processing.
-- No fixed schedule — processing is driven by data availability.
-
-**When to use this pattern:**
-
-- Processing should happen as soon as data is available.
-- You want to avoid fixed schedules that waste resources or add latency.
-- Useful for event-driven microservices and real-time analytics.
-
-**Configuration:** Requires `apache-airflow-providers-apache-kafka` to be added to the custom Airflow image. **Not yet implemented** — see [roadmap.md](roadmap.md).
+> **Event-Driven (Architecture D)**: An Airflow KafkaSensor triggers processing on data arrival. Not yet implemented — requires `apache-airflow-providers-apache-kafka` in the custom Airflow image. See [`roadmap.md`](roadmap.md).
 
 ---
 
 ## Storage Format Architectures
 
-Orthogonal to the orchestration pattern, the **storage format** can also be swapped.
+Storage format is orthogonal to orchestration — any format works with any scenario:
 
+| Scenario | Storage Format | Query Engine | Status |
+|---|---|---|---|
+| Streaming First | Delta Lake | Spark / `spark-sql` | Working |
+| Airflow Orchestrated | Delta Lake | Spark / `spark-sql` | Working |
+| Trino SQL Engine | Delta Lake | Trino + Spark Thrift | Working |
+| Hudi Comparison | Apache Hudi | Spark | Working |
 
-| Scenario       | Storage Format | Query Engine        | Status      |
-| -------------- | -------------- | ------------------- | ----------- |
-| **Scenario 1** | Delta Lake     | Spark / `spark-sql` | **Working** |
-| **Scenario 2** | Delta Lake     | Trino + dbt         | Deferred    |
-| **Scenario 3** | Hudi           | Spark               | Deferred    |
-
-
-These can be combined with any orchestration architecture above. For example:
-
-- Architecture A + Scenario 1 = streaming-first with manual batch (default today)
-- Architecture B + Scenario 1 = hybrid with Airflow-orchestrated batch (default today)
-- Architecture B + Scenario 2 = hybrid pipeline with Trino-served Gold layer and dbt transformations
+The `STORAGE_FORMAT` env var (`delta` / `hudi`) parameterizes both `streaming_job.py` and `batch_job.py`. Swapping the format changes package dependencies, writeStream configuration, table options, and S3 paths.
 
 ---
 
-## How to Switch Architectures
+## Layer View
 
-Docker Compose profiles control which services come up. Core infrastructure (Kafka, Spark, LocalStack, Postgres, etc.) always starts; profile selection decides whether the data pipeline containers and/or Airflow also start.
+The Web UI includes a **Layer View** (`/layers`) that visualizes all 11 architecture layers as a table:
 
+| Layer | Example Tools |
+|---|---|
+| Ingestion | Apache Kafka, (future: Debezium, Redpanda) |
+| Stream Processing | Spark Structured Streaming, (future: Apache Flink) |
+| Storage Format | Delta Lake, Apache Hudi, (future: Iceberg) |
+| Object Storage | LocalStack S3, (future: MinIO) |
+| Orchestration | Apache Airflow, (future: Prefect, Dagster) |
+| Query Engine | spark-sql, Trino, Spark Thrift, (future: DuckDB) |
+| Transform | spark-submit, Airflow DAGs, (future: dbt) |
+| BI / Dashboard | (future: Metabase, Superset, Grafana) |
+| Governance | (future: OpenLineage, DataHub) |
+| Data Quality | (future: Great Expectations, Soda) |
+| Exploration | (future: JupyterLab, Zeppelin) |
 
-| Architecture                | Command                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------- |
-| **A (Streaming-First)**     | `docker compose --profile streaming-first up -d`                                |
-| **B (Hybrid with Airflow)** | `docker compose --profile airflow-orchestrated up -d`                           |
-| A + B simultaneously        | `docker compose --profile streaming-first --profile airflow-orchestrated up -d` |
-| Core infrastructure only    | `docker compose up -d`                                                          |
+Click a scenario in the sidebar to see which tools it activates. Toggle reference stacks (Databricks, Microsoft Fabric, AWS) to compare proprietary equivalents per layer.
 
+---
 
-Running both profiles together is safe: `streaming-job` and `producer` are defined under both profiles so Docker Compose only instantiates them once, and the supervisor DAG sees the healthy app and never triggers a restart.
+## How to Switch Scenarios
+
+Docker Compose profiles control which services come up. Core infrastructure (Kafka, Spark, LocalStack, Postgres, Kafdrop) always starts.
+
+| Scenario | Command |
+|---|---|
+| Streaming First | `docker compose --profile streaming-first up -d` |
+| Airflow Orchestrated | `docker compose --profile airflow-orchestrated up -d` |
+| Trino SQL Engine | `docker compose --profile streaming-first --profile trino -f compose/scenario-2.yml up -d` |
+| Hudi Comparison | `docker compose --profile streaming-first -f compose/scenario-3.yml up -d` |
+| Core infrastructure only | `docker compose up -d` |
+
+Always run `docker compose down --remove-orphans` before switching. The `--remove-orphans` flag tears down containers not selected by the new profile, preventing leftover services from other scenarios.
 
 ### Profile-to-service mapping
 
@@ -247,15 +172,16 @@ graph TD
     end
 ```
 
-
+`streaming-job` and `producer` belong to both `streaming-first` and `airflow-orchestrated` — Compose instantiates them once even when both profiles are active.
 
 ---
 
 ## Related Documentation
 
-- [infrastructure.md](infrastructure.md) — Service-by-service reference, including the custom Airflow image and the new DAGs.
-- [data-flow.md](data-flow.md) — Pipeline journey: producer, Kafka, streaming, Silver, batch, Gold; inspection commands at each stage.
-- [data-storage.md](data-storage.md) — Storage at rest: S3 bucket layout, S3A configuration, Delta Lake features, and the full Spark SQL → Delta → Parquet → S3A → S3 storage stack.
-- [troubleshooting.md](troubleshooting.md) — Common gotchas (ivy2-cache permissions, Docker socket on Linux hosts).
-- [roadmap.md](roadmap.md) — Deferred items, implementation specs, and future vision.
-
+- [`infrastructure.md`](infrastructure.md) — Service-by-service reference, custom Airflow image, DAGs, spark-thrift
+- [`data-flow.md`](data-flow.md) — Pipeline journey: producer → Kafka → streaming → Silver → batch → Gold
+- [`data-storage.md`](data-storage.md) — Storage at rest: S3 layout, S3A config, Delta features, full storage stack
+- [`troubleshooting.md`](troubleshooting.md) — Common gotchas and fixes
+- [`roadmap.md`](roadmap.md) — Deferred items, Component Evolution Roadmap
+- [`layers-and-tools.md`](layers-and-tools.md) — Full tool catalog per layer
+- [`reference-stack-mapping.md`](reference-stack-mapping.md) — All-in-one platform comparison tables

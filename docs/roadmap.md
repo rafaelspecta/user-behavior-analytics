@@ -67,10 +67,11 @@ Items not covered by the current implementation, organized by category.
 | ------------------------------- | -------------- | --------------------------------------------------------------- | ------ | ----------------- |
 | Redshift sync                   | Scenario 1     | No JDBC driver in Spark image                                   | Medium | Deferred          |
 | Delta table compaction (ZORDER) | Scenario 1     | OSS Delta Lake limitation                                       | Low    | Deferred          |
-| Trino catalog configuration     | Scenario 2     | Deleted `hive.properties`, no Delta connector                   | Medium | Deferred          |
-| Spark Thrift Server             | Scenario 2     | Not deployed as Docker service                                  | Medium | Deferred          |
+| Trino catalog configuration     | Scenario 2     | Deleted `hive.properties`, no Delta connector                   | Medium | **Done**          |
+| Spark Thrift Server             | Scenario 2     | Not deployed as Docker service                                  | Medium | **Done**          |
 | dbt integration                 | Scenario 2     | Thrift Server missing, `profiles.yml` broken, dbt not installed | High   | Deferred          |
-| Hudi storage format             | Scenario 3     | Code commented out, Hudi JARs not configured                    | Medium | Deferred          |
+| Hudi storage format             | Scenario 3     | Code commented out, Hudi JARs not configured                    | Medium | **Done**          |
+| Scenario Switcher Web UI        | Infrastructure | —                                                               | High   | **Done**          |
 | BI / Dashboard layer (Metabase) | Presentation   | Needs Trino catalog or Spark Thrift Server (Scenario 2)         | Medium | Deferred          |
 | Data governance (OpenLineage)   | Governance     | Cross-cutting; most value once Scenario 2 is in place           | High   | Deferred          |
 | Docker Compose profiles         | Infrastructure | -                                                               | Medium | **Done**          |
@@ -103,7 +104,7 @@ Items not covered by the current implementation, organized by category.
 ### Trino Catalog Configuration
 
 **Category:** Scenario 2 enablement
-**Current state:** Trino starts via Docker Compose (port 8082) but has no catalogs. The original `config/trino/catalog/hive.properties` was deleted from git.
+**Current state:** `config/trino/catalog/delta.properties` has been created but still needs testing. Trino starts via Docker Compose (port 8082). The original `config/trino/catalog/hive.properties` was deleted from git.
 **What's needed:**
 
 - Create `config/trino/catalog/delta.properties` with Delta Lake connector configuration
@@ -114,7 +115,7 @@ Items not covered by the current implementation, organized by category.
 ### Spark Thrift Server
 
 **Category:** Scenario 2 enablement
-**Current state:** Not deployed. Required by dbt-spark for thrift connection method.
+**Current state:** The service is defined in `compose/scenario-2.yml` but still needs healthcheck validation. Required by dbt-spark for thrift connection method.
 **What's needed:**
 
 - Add `spark-thrift` service to `docker-compose.yml`
@@ -168,7 +169,7 @@ spark-thrift:
 ### Hudi Storage Format
 
 **Category:** Scenario 3 enablement
-**Current state:** Hudi writeStream code is commented out in `src/streaming/streaming_job.py`. The producer and Kafka infrastructure are shared and already working.
+**Current state:** `STORAGE_FORMAT` parameterization is implemented in `src/streaming/streaming_job.py` and `src/batch/batch_job.py`, and a `compose/scenario-2.yml` override exists. The producer and Kafka infrastructure are shared and already working. Hudi Maven packages may need version verification.
 **What's needed:**
 
 - Uncomment Hudi writeStream configuration in `streaming_job.py`
@@ -264,96 +265,46 @@ Airflow has been upgraded directly from 2.3.0 to **3.2.0**, which includes `@con
 
 ## Architecture Scenario Roadmap
 
-### Scenario 1: Delta Lake + Spark (Current)
+### Scenario 1: Streaming First (Delta Lake + Spark)
 
-```mermaid
-graph TD
-    A[Kafka Producer] --> B[Kafka]
-    B --> C[Spark Streaming]
-    C --> D["Delta Lake (Silver)"]
-    D --> E["Spark Batch"]
-    E --> F["Delta Lake (Gold)"]
-    F --> G["Redshift (deferred)"]
-    G --> H[BI Tools]
-```
+**Status:** Working — scenario switchable via Web UI or CLI
 
+### Scenario 2: Airflow Orchestrated (Delta Lake + Airflow)
 
+**Status:** Working — Airflow supervises streaming and orchestrates batch
 
-**Status:** Working (minus Redshift sync)
+### Scenario 3: Trino SQL Engine (Delta Lake + Trino + Thrift)
 
+**Status:** Trino catalog ready, Spark Thrift Server deployed. dbt deferred (Phase 2 — needs dbt-spark in custom Airflow image).
 
-| Milestone                                                  | Status   | Description                                         |
-| ---------------------------------------------------------- | -------- | --------------------------------------------------- |
-| Core pipeline (Producer -> Kafka -> Spark -> Delta Silver) | Done     | Events flowing end-to-end                           |
-| Batch aggregation (Silver -> Gold)                         | Done     | On-demand via `docker compose exec`                 |
-| Redshift sync (Gold -> Redshift)                           | Deferred | Needs JDBC driver and LocalStack Redshift config    |
-| BI Tools integration                                       | Future   | Depends on Redshift; could add Metabase or Superset |
+| Milestone                    | Status | Description |
+| ---------------------------- | ------ | ----------- |
+| Trino catalog for Delta Lake | Done | `config/trino/catalog/delta.properties` with file metastore on S3 |
+| Spark Thrift Server          | Done | `compose/scenario-2.yml`, ivy2-cache, healthcheck on port 10000 |
+| dbt models and tests         | Not started | Fix `profiles.yml`, install dbt-spark in custom Airflow image |
+| dbt-driven Gold layer        | Not started | Use dbt to transform Silver → Gold instead of Spark batch |
 
+### Scenario 4: Hudi Comparison (Hudi + Spark)
 
-### Scenario 2: Delta Lake + Trino + dbt
+**Status:** Implemented — STORAGE_FORMAT parameterization, Hudi packages, compose override. End-to-end tested.
 
-```mermaid
-graph TD
-    A[Kafka Producer] --> B[Kafka]
-    B --> C[Spark Streaming]
-    C --> D["Delta Lake (Silver)"]
-    D --> E[Trino]
-    E --> F[dbt]
-    F --> G["Delta Lake (Gold)"]
-    G --> H["Redshift (deferred)"]
-    H --> I[BI Tools]
-```
+| Milestone                | Status | Description |
+| ------------------------ | ------ | ----------- |
+| Hudi streaming write     | Done | STORAGE_FORMAT env var routes to Hudi writeStream config |
+| Hudi Maven packages      | Done | `hudi-spark3.5-bundle_2.12:0.15.0` in compose/scenario-3.yml |
+| Hudi batch aggregation   | Done | batch_job.py parameterized via STORAGE_FORMAT |
+| Hudi timeline management | Not started | Configure compaction strategy, explore timeline API |
 
+### Orchestration Patterns
 
+The project supports different orchestration approaches across scenarios (see [architecture-guide.md](architecture-guide.md) for full details):
 
-**Status:** Not started -- Trino starts but has no catalog; dbt not configured
-
-
-| Milestone                    | Status      | Description                                                |
-| ---------------------------- | ----------- | ---------------------------------------------------------- |
-| Trino catalog for Delta Lake | Not started | Create `delta.properties` with S3A/Delta connector         |
-| Spark Thrift Server          | Not started | Deploy as Docker service for dbt connection                |
-| dbt models and tests         | Not started | Fix `profiles.yml`, install dbt-spark                      |
-| dbt-driven Gold layer        | Not started | Use dbt to transform Silver -> Gold instead of Spark batch |
-| Redshift sync                | Not started | Same as Scenario 1                                         |
-
-
-### Scenario 3: Hudi instead of Delta Lake
-
-```mermaid
-graph TD
-    A[Kafka Producer] --> B[Kafka]
-    B --> C[Spark Streaming]
-    C --> D["Hudi (Silver)"]
-    D --> E[Spark Batch]
-    E --> F["Hudi (Gold)"]
-    F --> G[...]
-```
-
-
-
-**Status:** Not started -- code is commented out
-
-
-| Milestone                | Status      | Description                                                    |
-| ------------------------ | ----------- | -------------------------------------------------------------- |
-| Hudi streaming write     | Not started | Uncomment and configure Hudi writeStream in `streaming_job.py` |
-| Hudi Maven packages      | Not started | Add `hudi-spark3.5-bundle_2.12` to packages                    |
-| Hudi batch aggregation   | Not started | Adapt batch job to read/write Hudi tables                      |
-| Hudi timeline management | Not started | Configure compaction strategy, explore timeline API            |
-
-
-### Orchestration Architectures
-
-In addition to storage format scenarios, the project supports different **orchestration patterns** (see [architecture-guide.md](architecture-guide.md) for full details):
-
-
-| Architecture                   | Description                                                                    | Status                                                   |
-| ------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| **A: Streaming-First**         | Streaming runs as Docker containers; batch triggered manually                  | **Working** (`--profile streaming-first`)                |
-| **B: Hybrid with Airflow**     | Streaming runs as a container; Airflow supervises it and orchestrates batch    | **Working** (`--profile airflow-orchestrated`)           |
-| B-alt: Full Airflow submission | Airflow submits streaming via `spark-submit --deploy-mode cluster --supervise` | Not possible on Spark Standalone (see section above)     |
-| **D: Event-Driven**            | Airflow KafkaSensor triggers processing on data arrival                        | Deferred (needs `apache-airflow-providers-apache-kafka`) |
+| Pattern | Description | Status |
+| --- | --- | --- |
+| Manual (no orchestrator) | Batch triggered via `docker compose exec spark-master spark-submit` | **Working** (Scenarios 1, 3, 4) |
+| Airflow Hybrid | Streaming container + Airflow supervision and batch orchestration | **Working** (Scenario 2) |
+| Full Airflow submission | Airflow submits streaming via `spark-submit --deploy-mode cluster --supervise` | Not possible on Spark Standalone |
+| Event-Driven (KafkaSensor) | Airflow KafkaSensor triggers processing on data arrival | Deferred (needs Kafka provider) |
 
 
 ### Future Scenarios (Ideas)
@@ -378,33 +329,44 @@ These are additional architecture patterns that could be added to expand the pla
 
 ## Implementation Priority
 
-Recommended order for expanding the playground beyond the current state:
+- **Scenario Switcher Web UI (Phase 1)** -- Completed. Enables students to select architecture scenarios via a browser. Ships 4 starting scenarios: Streaming First (Arch A), Airflow Orchestrated (Arch B), Trino SQL Engine, and Hudi Comparison.
 
-```mermaid
-graph TD
-    Current["Scenario 1: Delta + Spark (DONE)"] --> Profiles["Docker Compose Profiles (DONE)"]
-    Profiles --> CustomAirflow["Custom Airflow Image (DONE)"]
-    CustomAirflow --> HybridB["Architecture B: Hybrid (DONE)"]
-    HybridB --> S2["Scenario 2: Trino + dbt"]
-    S2 --> BI["BI / Dashboard Layer (Metabase)"]
-    Profiles --> S3["Scenario 3: Hudi"]
-    Current --> Redshift["Redshift Sync"]
-    BI --> Lineage["Data Governance (OpenLineage)"]
-    S3 --> Lineage
-    Redshift --> Lineage
-    Lineage --> Iceberg["Scenario: Iceberg"]
-    Lineage --> Flink["Scenario: Flink"]
-    Lineage --> DataMesh["Scenario: Data Mesh"]
-```
+---
 
+## Component Evolution Roadmap
 
+Each row below is planned as a small, focused branch and PR. Every component
+adds exactly one new layer or tool, keeping PRs reviewable and the playground
+composable. Once the Scenario Switcher is in place, adding a new component is
+a three-file change: compose override + scenario entry + table row.
 
-The first three priorities have shipped (Profiles, Custom Airflow Image, Hybrid orchestration). Remaining priorities, in recommended order:
+| # | Branch | Component | Adds | Depends On | Profile | New Services |
+|---|---|---|---|---|---|---|
+| — | `feat/scenario-switcher-webui` | Scenario Switcher | Web UI + 4 starting scenarios | — | — | — |
+| 1 | `feat/component-dbt` | dbt Transformations | dbt-spark in custom Airflow image, dbt models → Gold | Trino + Thrift scenario, custom Airflow image | — | — |
+| 2 | `feat/component-metabase` | BI / Dashboard | Metabase connected to Trino, sample dashboards | Trino scenario | `bi` | `metabase`, `metabase-db` |
+| 3 | `feat/component-jupyter` | Exploration Notebooks | JupyterHub + PySpark kernel, pre-loaded example notebooks | Spark cluster | `notebook` | `jupyter` |
+| 4 | `feat/component-redshift` | Data Warehouse | Spark → Redshift sync (JDBC), LocalStack Redshift | Scenario 1 | — | — |
+| 5 | `feat/component-openlineage` | Data Governance | Marquez + OpenLineage across Spark, Airflow, dbt, Trino | Multiple engines present | `governance` | `marquez`, `marquez-db` |
+| 6 | `feat/component-iceberg` | Iceberg Format | Iceberg catalog, Iceberg streaming write, format comparison | — | `iceberg` | `iceberg-rest` |
+| 7 | `feat/component-flink` | Flink Alternative | Flink JobManager + TaskManager, Flink SQL | — | `flink` | `flink-jobmanager`, `flink-taskmanager` |
+| 8 | `feat/component-unity-catalog` | Unity Catalog | OSS Unity Catalog for metadata governance | — | `catalog` | `unity-catalog` |
+| 9 | `feat/component-superset` | Superset Alternative | Alternative BI tool, comparison to Metabase | Trino scenario | `bi-alt` | `superset`, `superset-db` |
+| 10 | `feat/component-data-mesh` | Data Mesh demo | Multiple producers, domain schemas, contracts | — | `mesh` | TBD |
+| 11 | `feat/component-debezium` | CDC Pipeline | Debezium + Kafka Connect, MySQL source | — | `cdc` | `debezium`, `connect`, `mysql` |
 
-1. **Scenario 2 (Trino + dbt)** -- most requested by data engineering students. Unlocks a real query layer over the Gold bucket and contrasts nicely with the current `spark-sql` direct-query experience described in the README.
-2. **BI / Dashboard Layer (Metabase)** -- closes the analytics loop for the MIT class: students see a Producer event land in a chart a data leader would actually open. Rides on top of Scenario 2 (Metabase -> Trino -> Delta), so no extra warehouse copy is required.
-3. **Scenario 3 (Hudi)** -- introduces lakehouse format comparison.
-4. **Redshift sync** -- completes the classical EDW flow on top of Scenario 1.
-5. **Data Governance & Lineage (OpenLineage)** -- cross-cutting. Applied *after* the previous priorities so there are multiple engines (Spark, dbt, Trino) for lineage to connect. Turns governance from slideware into a live, clickable graph.
-6. **Future scenarios** -- based on student interest and course curriculum.
+### Adding a New Component (Contributor Guide)
+
+1. Define the Docker service in a compose override file (`compose/<name>.yml`)
+2. Use a new `--profile` so the component is opt-in
+3. Add a scenario entry in `scenarios.yml`
+4. Add a row to this table
+5. Test: `docker compose --profile <new> up -d`
+
+### Future Components (Ideas, Not Scheduled)
+
+- **Great Expectations** — Data quality framework with validation reports
+- **ML Feature Store (Feast)** — Feature engineering pipeline feeding ML
+- **Multi-cloud simulation** — MinIO instead of LocalStack, multi-region
+- **Real-time dashboards** — Push-based visualization with WebSocket updates
 

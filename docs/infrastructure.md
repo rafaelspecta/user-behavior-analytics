@@ -263,12 +263,39 @@ Creates two topics:
 | --- | --- |
 | Image | `trinodb/trino:380` |
 | Port | 8082 (host) → 8080 (container) |
-| Purpose | SQL query engine (deferred — no catalog configured) |
+| Purpose | SQL query engine with Delta Lake connector |
 | Profile | `trino` (opt-in; not started by default) |
 | URL | http://localhost:8082 |
 | Volumes | `./config/trino` → `/etc/trino` |
 
-> Trino is reserved for Scenario 2 (Trino + dbt). It lives behind its own profile so it does not consume resources when you only want to play with orchestration. See [roadmap.md](roadmap.md) for the Scenario 2 spec. To try it: `docker compose --profile trino up -d trino`.
+> Trino is part of the **Trino SQL Engine** scenario (`--profile trino`). Its catalog (`config/trino/catalog/delta.properties`) uses a file metastore on LocalStack S3. To test: `curl http://localhost:8082/v1/info`.
+
+### Spark Thrift Server
+
+| Property | Value |
+| --- | --- |
+| Image | `spark:3.5.3-scala2.12-java17-python3-ubuntu` |
+| Port | 10000 (JDBC/ODBC endpoint) |
+| Purpose | SQL endpoint for BI tools and dbt (JDBC/ODBC at port 10000) |
+| Compose file | `compose/scenario-2.yml` |
+| Depends on | Spark Master, LocalStack, ivy2-cache-init |
+| Volume | `ivy2-cache` → `/tmp/ivy2` |
+| Healthcheck | `nc -z localhost 10000` |
+
+> The Thrift Server exposes Delta Lake tables over JDBC/ODBC. It is part of the **Trino SQL Engine** scenario and is required for dbt (future). See `compose/scenario-2.yml` for the full config.
+
+### Scenario Switcher Web UI
+
+| Property | Value |
+| --- | --- |
+| Framework | FastAPI + Jinja2 |
+| Port | 8084 |
+| Purpose | Browser-based scenario launcher, layer explorer, reference stack comparison |
+| URL | http://localhost:8084 |
+| Config files | `scenarios.yml`, `layers.yml` |
+| Start | `.venv/bin/python playground_web.py` |
+
+> The Web UI provides two views: **Card View** (launch/stop/status/exploration guides) and **Layer View** (11 architecture layers with tool comparison). See [`plan-scenario-switcher.md`](plan-scenario-switcher.md) for the full architecture.
 
 ### LocalStack
 

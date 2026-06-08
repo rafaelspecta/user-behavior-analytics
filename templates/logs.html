@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Playground Logs</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      padding: 1rem;
+      display: flex; align-items: center; justify-content: space-between;
+      max-width: 1100px; margin: 0 auto;
+    }
+    header h1 { margin: 0; font-size: 1.25rem; }
+    .back { color: var(--accent); text-decoration: none; font-weight: 600; }
+    .container {
+      max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem;
+    }
+    .toolbar {
+      display: flex; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap;
+    }
+    .toolbar button {
+      padding: .45rem .9rem; border-radius: var(--radius); border: none; background: #334155; color: var(--text); cursor: pointer; font-weight: 600;
+    }
+    pre {
+      background: var(--card-bg); border: 1px solid #334155; border-radius: var(--radius); padding: 1rem; overflow: auto; max-height: 72vh; font-size: .85rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Logs</h1>
+    <a href="/" class="back">Back to scenarios</a>
+  </header>
+  <div class="container">
+    <div class="toolbar">
+      <button onclick="loadLogs(50)">Tail 50</button>
+      <button onclick="loadLogs(200)">Tail 200</button>
+      <button onclick="loadLogs(500)">Tail 500</button>
+    </div>
+    <pre id="logs">Loading...</pre>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const scenarioId = params.get('scenario') || location.pathname.split('/').pop();
+    document.getElementById('title').textContent = 'Logs: ' + scenarioId;
+    async function loadLogs(tail) {
+      const pre = document.getElementById('logs');
+      pre.textContent = 'Loading...';
+      try {
+        const res = await fetch('/api/scenarios/' + scenarioId + '/logs?tail=' + tail);
+        const data = await res.json();
+        pre.textContent = data.logs || '(no logs)';
+      } catch (e) {
+        pre.textContent = 'Error: ' + e.message;
+      }
+    }
+    loadLogs(200);
+  </script>
+</body>
+</html>

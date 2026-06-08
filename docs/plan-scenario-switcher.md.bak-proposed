@@ -1,0 +1,197 @@
+# Scenario Switcher — Implementation Plan (As-Built)
+
+## Branch
+`feat/scenario-switcher-webui`
+
+## Goal
+Students open a browser at `http://localhost:8084`, see scenario cards, read
+descriptions, click **Launch** to run `docker compose`, and watch service
+health status in real time.
+
+---
+
+## Architecture
+
+- **Backend**: FastAPI (`playground_web.py`) on port `8084`, calling
+  `subprocess.run(["docker", "compose", ...])` directly. Requires Docker
+  Desktop / `docker compose` on the host PATH.
+- **Frontend**: Jinja2 templates + vanilla JS polling (`templates/index.html`,
+  `templates/logs.html`).
+- **No DinD**: The web UI is a lightweight host process, not a Docker service.
+- **Port 8084** (not 5000 — 5000 was occupied on the development host).
+
+## UX Decisions
+
+| Decision | Chosen |
+|---|---|
+| Port | `8084` |
+| Logs in browser | "Check Status" button; no live stream |
+| Switching scenarios | "Stop All" required before launching a new scenario |
+| Kafdrop | Always-on (no `--profile ui` required) |
+| Init containers | Excluded from `services_expected` (they are transient) |
+
+---
+
+## Scenarios Defined in `scenarios.yml`
+
+All scenario definitions are in a single YAML file. The web UI reads this file
+at startup. Adding a new scenario only requires editing this file — no code
+changes.
+
+### Scenario 1: Streaming First (Architecture A, Delta Lake)
+
+- **What**: Kafka → Spark Structured Streaming → Delta Lake Silver → manual
+  batch to Gold. No Airflow.
+- **Profiles**: `streaming-first`
+- **Compose files**: `docker-compose.yml` only (no override needed — base
+  compose already has the Delta command)
+- **Env**: `.env.scenario-1` (`STORAGE_FORMAT=delta`, Delta packages)
+- **Extra services**: none
+
+### Scenario 2: Airflow Orchestrated (Architecture B, Delta Lake)
+
+- **What**: Same pipeline as Scenario 1, but Airflow supervises the streaming
+  container and orchestrates batch. Architecture B from the README.
+- **Profiles**: `airflow-orchestrated`
+- **Compose files**: `docker-compose.yml` only
+- **Env**: `.env.scenario-1` (same Delta pipeline)
+- **Extra services**: `airflow` (port 8081)
+
+### Scenario 3: Trino SQL Engine (Architecture A + Trino + Thrift)
+
+- **What**: Adds Trino (SQL query engine) and Spark Thrift Server on top of
+  Architecture A. dbt deferred to Phase 2 (custom Airflow image required).
+- **Profiles**: `streaming-first`, `trino`
+- **Compose files**: `docker-compose.yml`, `compose/scenario-2.yml`
+- **Env**: `.env.scenario-2` (`STORAGE_FORMAT=delta`, `ENABLE_TRINO=true`)
+- **Extra services**: `trino` (port 8082), `spark-thrift` (port 10000)
+
+### Scenario 4: Hudi Comparison (Architecture A, Hudi)
+
+- **What**: Same pipeline as Scenario 1, but streaming writes Apache Hudi
+  tables instead of Delta Lake. Lakehouse format comparison.
+- **Profiles**: `streaming-first`
+- **Compose files**: `docker-compose.yml`, `compose/scenario-3.yml`
+- **Env**: `.env.scenario-3` (`STORAGE_FORMAT=hudi`, Hudi packages)
+- **Extra services**: none (override changes streaming-job command)
+
+---
+
+## File Changes
+
+### Created
+
+| File | Purpose |
+|---|---|
+| `scenarios.yml` | 4 scenario definitions (single source of truth) |
+| `.env.scenario-1` | Delta packages, `STORAGE_FORMAT=delta` |
+| `.env.scenario-2` | Delta packages, `ENABLE_TRINO=true` |
+| `.env.scenario-3` | Hudi packages, `STORAGE_FORMAT=hudi` |
+| `compose/scenario-2.yml` | Spark Thrift Server service definition |
+| `compose/scenario-3.yml` | Streaming-job Hudi command override |
+| `config/trino/catalog/delta.properties` | Trino Delta Lake connector |
+| `playground_web.py` | FastAPI app (scenarios, launch, stop, status) |
+| `templates/index.html` | Scenario cards, launch/stop/status buttons |
+| `templates/logs.html` | Docker compose logs view |
+| `requirements-web.txt` | fastapi, uvicorn, jinja2, pyyaml |
+| `docs/plan-scenario-switcher.md` | This plan |
+
+### Modified
+
+| File | Change |
+|---|---|
+| `src/streaming/streaming_job.py` | Parameterized via `STORAGE_FORMAT` env var (delta/hudi) |
+| `src/batch/batch_job.py` | Same parameterization |
+| `README.md` | Added Scenario Switcher Web UI section |
+| `docs/roadmap.md` | Updated scenario statuses; added component roadmap |
+| `docs/architecture-guide.md` | Updated CLI commands per scenario |
+
+### Not Modified (by design)
+
+| File | Why |
+|---|---|
+| `docker-compose.yml` | Base compose already had profiles and Delta command — no refactoring needed |
+
+---
+
+## Docker Compose Strategy (What Shipped)
+
+- **No change to base `docker-compose.yml`**. It already had profiles
+  (`streaming-first`, `airflow-orchestrated`, `trino`) and the streaming-job
+  command on `main`. We chose not to refactor the base compose to avoid
+  breaking the existing working configuration.
+- **Scenario overrides**: `compose/scenario-2.yml` adds `spark-thrift` only.
+  `compose/scenario-3.yml` overrides `streaming-job.command` for Hudi.
+  There is no `compose/scenario-1.yml` — it was unnecessary since the base
+  compose already has the Delta command.
+- **Kafdrop**: No profile (always-on). Starts whenever Kafka is up.
+- **Init containers** (`kafka-init`, `ivy2-cache-init`): Transient — excluded
+  from `services_expected` in all scenarios.
+- **Packages**: Hardcoded as JSON arrays in compose commands. Using
+  `--env-file` with comma-separated package lists caused Docker Compose
+  parsing issues, so `.env` files only carry `STORAGE_FORMAT` and
+  `ENABLE_TRINO`.
+
+## Parameterized Spark Jobs
+
+Both `src/streaming/streaming_job.py` and `src/batch/batch_job.py` read the
+`STORAGE_FORMAT` env var:
+
+- `"delta"` (default): Delta extensions, Delta packages, Delta paths
+- `"hudi"`: Hudi writeStream config, Hudi packages, Hudi paths
+
+## Phase 1 Explicitly Excludes
+
+- Custom Airflow image changes (already done on main — see
+  `docker/airflow/Dockerfile`)
+- dbt integration (needs dbt-spark in custom Airflow image)
+- Architecture B-alt (full Airflow submission — impossible on Spark Standalone)
+- Architecture D (event-driven, KafkaSensor)
+- BI / Dashboard layer (Metabase)
+- Jupyter notebooks
+- Redshift sync
+- OpenLineage data governance
+- Iceberg, Flink scenarios
+
+All of the above are tracked in `docs/roadmap.md` under the Component Evolution
+Roadmap section.
+
+---
+
+## Key Discoveries During Implementation
+
+1. **Base compose already had profiles** — no refactoring needed, preserving
+   backward compatibility.
+2. **`compose/scenario-1.yml` was unnecessary** — base compose already has the
+   Delta command.
+3. **`.env` files with comma-separated packages don't compose cleanly** —
+   Docker Compose `--env-file` doesn't merge reliably with multiple compose
+   files when values contain commas. We hardcoded packages in compose commands
+   (JSON arrays) instead.
+4. **Port 5000 was occupied** — moved to 8084.
+5. **Init containers (`kafka-init`, `ivy2-cache-init`)** exist but weren't in
+   the original plan. Excluded from health checks because they exit after
+   completing.
+6. **Kafdrop already unprofiled** in base compose — kept always-on per user
+   preference.
+
+## Verified Working
+
+- Scenario 1 launched successfully: 9/9 services healthy
+- All compose configs pass `docker compose config` validation
+- Web UI on port 8084: launch, status check, stop all functional
+
+## Component Evolution Roadmap
+
+Each subsequent component is planned as a small, focused branch/PR. See
+`docs/roadmap.md` → Component Evolution Roadmap for the full sequence:
+
+```
+feat/scenario-switcher-webui (this PR)
+ ├─ feat/component-dbt
+ ├─ feat/component-metabase
+ ├─ feat/component-jupyter
+ ├─ feat/component-redshift
+ ├─ feat/component-openlineage
+ └─ feat/component-iceberg
+```

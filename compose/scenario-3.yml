@@ -1,0 +1,32 @@
+# Scenario 3: Hudi + Spark
+# Use: docker compose --profile streaming-first -f compose/scenario-3.yml up -d
+# This override replaces ONLY the streaming-job command to use Hudi packages.
+# All other service definitions come from docker-compose.yml.
+
+services:
+  streaming-job:
+    command:
+      - "bash"
+      - "-c"
+      - |
+        echo 'Waiting for S3 buckets...'
+        until curl -sf http://localstack:4566/_localstack/init/ready | grep -q SUCCESSFUL; do
+          echo 'Init scripts not done yet...' && sleep 5;
+        done
+        echo 'S3 buckets ready, starting streaming job...'
+        /opt/spark/bin/spark-submit \
+          --master spark://spark-master:7077 \
+          --name ClickstreamStreaming \
+          --conf spark.cores.max=1 \
+          --conf spark.executor.memory=512m \
+          --conf spark.driver.extraJavaOptions=-Divy.home=/tmp/ivy2 \
+          --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.apache.hudi:hudi-spark3.5-bundle_2.12:0.15.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
+          /opt/spark/app/src/streaming/streaming_job.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - S3_ENDPOINT=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - SPARK_PUBLIC_DNS=localhost
+      - SPARK_NO_DAEMONIZE=true
+      - STORAGE_FORMAT=hudi

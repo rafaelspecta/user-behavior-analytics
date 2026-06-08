@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Architecture Playground</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Oxygen, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 2rem 1rem 1rem;
+      text-align: center;
+    }
+    header h1 { margin: 0; font-size: 2rem; }
+    header p { margin: .25rem 0 0; color: var(--muted); }
+    .controls {
+      max-width: 1100px;
+      margin: 0 auto 1rem;
+      padding: 0 1rem;
+      display: flex;
+      gap: .75rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .nav-tabs {
+      max-width: 1100px;
+      margin: 0 auto .75rem;
+      padding: 0 1rem;
+      display: flex; gap: 0; align-items: center;
+    }
+    .nav-tabs a {
+      padding: .45rem 1.1rem;
+      border-radius: var(--radius) var(--radius) 0 0;
+      text-decoration: none;
+      font-size: .85rem; font-weight: 600;
+      border: 1px solid transparent;
+      background: #1a2332; color: var(--muted);
+    }
+    .nav-tabs a.active { background: var(--card-bg); color: var(--text); border-color: #334155; border-bottom-color: var(--card-bg); }
+    .nav-tabs .spacer { flex: 1; }
+    .controls button {
+      padding: .6rem 1.2rem;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform .1s ease, opacity .2s ease;
+    }
+    .controls button:hover { transform: translateY(-1px); }
+    .btn-stop { background: var(--danger); color: #fff; }
+    .btn-refresh { background: #334155; color: var(--text); }
+    .grid {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 1.25rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      border: 1px solid #334155;
+      transition: border-color .2s ease;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    .card.active { border-color: var(--success); box-shadow: 0 0 0 2px rgba(34,197,94,.2); }
+    .card-header {
+      display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem;
+    }
+    .dot {
+      width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex-shrink: 0;
+    }
+    .dot.running { background: var(--success); box-shadow: 0 0 6px rgba(34,197,94,.5); }
+    .dot.stopped { background: var(--danger); }
+    .card h2 { margin: 0; font-size: 1.1rem; }
+    .card p.desc { margin: 0 0 .75rem; color: var(--muted); font-size: .92rem; }
+    .tags {
+      display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem;
+    }
+    .tag {
+      font-size: .72rem; padding: .2rem .55rem; border-radius: 999px; background: #0f172a; color: var(--muted); border: 1px solid #334155;
+    }
+    .section-label {
+      font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: .35rem;
+    }
+    .services-pills, .links-list, .steps-list {
+      list-style: none; padding: 0; margin: 0 0 .75rem;
+    }
+    .services-pills {
+      display: flex; flex-wrap: wrap; gap: .3rem;
+    }
+    .services-pills li {
+      font-size: .75rem; padding: .15rem .5rem; border-radius: 999px; background: rgba(56,189,248,.1); color: var(--accent); border: 1px solid rgba(56,189,248,.15);
+    }
+    .links-list li {
+      margin-bottom: .3rem;
+    }
+    .links-list a {
+      font-size: .82rem; color: var(--accent); text-decoration: none; font-weight: 500;
+    }
+    .links-list a:hover { text-decoration: underline; }
+    .links-list span.link-desc { font-size: .75rem; color: var(--muted); margin-left: .5rem; }
+    .steps-list li {
+      font-size: .8rem; padding: .3rem 0; border-bottom: 1px solid rgba(51,65,85,.4); color: var(--muted);
+    }
+    .steps-list li:last-child { border-bottom: none; }
+    .steps-list li strong { color: var(--text); }
+    .actions { display: flex; gap: .5rem; margin-top: auto; }
+    .actions button { flex: 1; padding: .55rem; border-radius: var(--radius); border: none; cursor: pointer; font-weight: 600; }
+    .btn-launch { background: var(--accent); color: #0f172a; }
+    .btn-launch:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-status { background: #334155; color: var(--text); }
+    .btn-guide { background: transparent; color: var(--accent); border: 1px solid var(--accent)!important; flex: 0 0 auto; padding: .55rem .75rem!important; }
+    .status-drawer, .guide-drawer {
+      margin-top: .75rem; padding-top: .75rem; border-top: 1px solid #334155; display: none;
+    }
+    .status-drawer.open, .guide-drawer.open { display: block; }
+    .service-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: .35rem .5rem; border-radius: 6px; background: #0f172a; margin-bottom: .4rem;
+    }
+    .state-badge {
+      font-size: .75rem; padding: .15rem .5rem; border-radius: 999px; font-weight: 600;
+    }
+    .state-running { background: rgba(34,197,94,.15); color: var(--success); }
+    .state-exited { background: rgba(239,68,68,.15); color: var(--danger); }
+    .state-other { background: rgba(148,163,184,.15); color: var(--muted); }
+    .summary {
+      margin-bottom: .6rem; font-size: .9rem; color: var(--muted);
+    }
+    .summary strong { color: var(--text); }
+    #global-toast {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: var(--card-bg); color: var(--text); padding: .75rem 1.25rem; border-radius: var(--radius); border: 1px solid #334155; box-shadow: 0 10px 30px rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .3s ease; z-index: 1000;
+    }
+    #global-toast.show { opacity: 1; pointer-events: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Data Architecture Playground</h1>
+    <p>Choose a scenario and launch the full Docker stack with one click</p>
+  </header>
+
+  <div class="nav-tabs">
+    <a href="/" class="active">Card View</a>
+    <a href="/layers">Layer View</a>
+    <span class="spacer"></span>
+  </div>
+
+  <div class="controls">
+    <button class="btn-stop" onclick="stopAll()">Stop All</button>
+    <button class="btn-refresh" onclick="refreshAll()">Refresh Status</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div id="global-toast"></div>
+
+  <script>
+    const scenarios = {{ scenarios | tojson | safe }};
+    let activeScenarioId = {{ (active_scenario_id or None) | tojson | safe }};
+  </script>
+  <script>
+    {% raw %}
+    function showToast(msg) {
+      const t = document.getElementById('global-toast');
+      t.textContent = msg; t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function h(str) { return str.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    function render() {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = scenarios.map(s => {
+        const servicesHtml = (s.services_list || []).map(n => `<li>${h(n)}</li>`).join('');
+        const linksHtml = (s.links || []).map(l => `<li><a href="${h(l.url)}" target="_blank">${h(l.name)}</a><span class="link-desc">&mdash; ${h(l.description)}</span></li>`).join('');
+        const stepsHtml = (s.exploration_steps || []).map(st => `<li><strong>${st.step}. ${h(st.title)}</strong><br>${h(st.description)}</li>`).join('');
+        const hasGuide = (s.exploration_steps || []).length > 0;
+        return `
+          <div class="card ${s.id === activeScenarioId ? 'active' : ''}" data-id="${s.id}">
+            <div class="card-header">
+              <div class="dot ${s.id === activeScenarioId ? 'running' : 'stopped'}"></div>
+              <h2>${h(s.name)}</h2>
+            </div>
+            <p class="desc">${h(s.description.replace(/\n/g, ' '))}</p>
+            <div class="tags"><span class="tag">${s.id}</span></div>
+            <div class="section-label">Services (${(s.services_list||[]).length})</div>
+            <ul class="services-pills">${servicesHtml}</ul>
+            <div class="section-label">Web UIs</div>
+            <ul class="links-list">${linksHtml || '<li style="color:var(--muted);font-size:.8rem">None</li>'}</ul>
+            <div class="actions">
+              <button class="btn-launch" id="btn-${s.id}" onclick="launch('${s.id}')">Launch</button>
+              <button class="btn-status" onclick="toggleStatus('${s.id}')">Status</button>
+              ${hasGuide ? '<button class="btn-guide" onclick="toggleGuide(\'' + s.id + '\')">Guide</button>' : ''}
+            </div>
+            <div class="status-drawer" id="status-${s.id}">
+              <div class="summary" id="summary-${s.id}">Checking...</div>
+              <div id="services-${s.id}"></div>
+            </div>
+            ${hasGuide ? `
+            <div class="guide-drawer" id="guide-${s.id}">
+              <div class="section-label">Step-by-Step Exploration</div>
+              <ol class="steps-list">${stepsHtml}</ol>
+            </div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function launch(id) {
+      const btn = document.getElementById('btn-' + id);
+      btn.disabled = true; btn.textContent = 'Launching...';
+      try {
+        const res = await fetch('/api/scenarios/' + id + '/start', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed');
+        showToast(data.scenario_id + ' started');
+        refreshAll();
+      } catch (e) {
+        showToast('Error: ' + e.message);
+        btn.disabled = false; btn.textContent = 'Launch';
+      }
+    }
+
+    async function stopAll() {
+      showToast('Stopping all scenarios...');
+      try {
+        await fetch('/api/stop-all', { method: 'POST' });
+        showToast('All stopped');
+        refreshAll();
+      } catch (e) {
+        showToast('Error stopping: ' + e.message);
+      }
+    }
+
+    async function toggleStatus(id) {
+      const drawer = document.getElementById('status-' + id);
+      if (drawer.classList.contains('open')) { drawer.classList.remove('open'); return; }
+      drawer.classList.add('open');
+      // Close guide drawer if open
+      const guide = document.getElementById('guide-' + id);
+      if (guide) guide.classList.remove('open');
+      await checkStatus(id);
+    }
+
+    function toggleGuide(id) {
+      const drawer = document.getElementById('guide-' + id);
+      if (drawer.classList.contains('open')) { drawer.classList.remove('open'); return; }
+      drawer.classList.add('open');
+      // Close status drawer if open
+      const status = document.getElementById('status-' + id);
+      status.classList.remove('open');
+    }
+
+    async function checkStatus(id) {
+      const summary = document.getElementById('summary-' + id);
+      const servicesDiv = document.getElementById('services-' + id);
+      summary.textContent = 'Checking...';
+      try {
+        const res = await fetch('/api/scenarios/' + id + '/status');
+        const data = await res.json();
+        const svc = Object.entries(data.services || {});
+        summary.innerHTML = `<strong>${data.services_running}/${data.services_expected}</strong> services running &middot; <span style="color:${data.healthy?'var(--success)':'var(--warn)'}">${data.healthy ? 'Healthy' : 'Unhealthy'}</span>`;
+        servicesDiv.innerHTML = svc.map(([name, info]) => {
+          const cls = info.state === 'running' ? 'state-running' : (info.state === 'exited' ? 'state-exited' : 'state-other');
+          return `<div class="service-row"><span>${name}</span><span class="state-badge ${cls}">${info.state}${info.health ? ' (' + info.health + ')' : ''}</span></div>`;
+        }).join('');
+        const card = document.querySelector(`.card[data-id="${id}"]`);
+        const dot = card.querySelector('.dot');
+        if (data.healthy) { card.classList.add('active'); dot.classList.add('running'); dot.classList.remove('stopped'); }
+        else { card.classList.remove('active'); dot.classList.remove('running'); dot.classList.remove('stopped'); }
+      } catch (e) {
+        summary.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    async function refreshAll() {
+      await detectRunning();
+      for (const s of scenarios) {
+        const drawer = document.getElementById('status-' + s.id);
+        if (drawer && drawer.classList.contains('open')) await checkStatus(s.id);
+      }
+    }
+
+    async function detectRunning() {
+      try {
+        const res = await fetch('/api/active-scenario');
+        const data = await res.json();
+        const newActive = data.scenario_id;
+        if (newActive !== activeScenarioId) {
+          activeScenarioId = newActive;
+          render();
+        }
+        // Update dots based on actual Docker status
+        for (const s of scenarios) {
+          const card = document.querySelector(`.card[data-id="${s.id}"]`);
+          if (!card) continue;
+          const dot = card.querySelector('.dot');
+          if (s.id === activeScenarioId) {
+            card.classList.add('active');
+            dot.classList.add('running');
+            dot.classList.remove('stopped');
+          } else {
+            card.classList.remove('active');
+            dot.classList.remove('running');
+            dot.classList.add('stopped');
+          }
+        }
+      } catch (e) {}
+    }
+
+    render();
+    detectRunning();
+    setInterval(refreshAll, 10000);
+    {% endraw %}
+  </script>
+</body>
+</html>

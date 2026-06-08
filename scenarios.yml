@@ -1,0 +1,246 @@
+scenarios:
+  - id: scenario-1
+    name: "Streaming First"
+    description: >
+      Streaming pipeline with Delta Lake on S3.
+      Kafka → Spark Structured Streaming → Delta Lake Silver → batch to Gold.
+      No Airflow — the simplest stack.
+    services_list:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+    links:
+      - name: "Kafdrop"
+        url: "http://localhost:9033"
+        description: "Browse Kafka topics and messages"
+      - name: "Spark Master"
+        url: "http://localhost:8080"
+        description: "Cluster state, workers, running apps"
+      - name: "Spark Worker"
+        url: "http://localhost:8083"
+        description: "Worker executors and logs"
+      - name: "Spark Driver"
+        url: "http://localhost:4040"
+        description: "Streaming job stages and metrics"
+    exploration_steps:
+      - step: 1
+        title: "Watch events on Kafdrop"
+        description: "Open Kafdrop → click 'clickstream-events' topic → View Messages. Watch Last Offset tick up."
+      - step: 2
+        title: "See Spark Streaming at work"
+        description: "Open Spark Master → click 'ClickstreamStreaming' app → Structured Streaming tab. See input rows and batch duration."
+      - step: 3
+        title: "Confirm data on S3"
+        description: "Run: docker compose exec localstack awslocal s3 ls s3://user-behavior-analytics-silver/clickstream/delta/ --recursive"
+      - step: 4
+        title: "Query Silver with spark-sql"
+        description: "Run: docker compose exec spark-master /opt/spark/bin/spark-sql --master 'local[*]' ... — then SELECT * FROM delta tables."
+      - step: 5
+        title: "Run the batch aggregation"
+        description: "From the Spark Master container: spark-submit --master spark://spark-master:7077 --conf spark.cores.max=1 --conf spark.executor.memory=512m --packages io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 /opt/spark/app/src/batch/batch_job.py"
+    profiles: [streaming-first]
+    compose_files: [docker-compose.yml]
+    env_file: .env.scenario-1
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+
+  - id: scenario-2
+    name: "Airflow Orchestrated"
+    description: >
+      Adds Airflow for streaming supervision and batch orchestration.
+      Same Delta Lake pipeline as Streaming First, now with production-grade scheduling.
+    services_list:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+      - airflow
+    links:
+      - name: "Kafdrop"
+        url: "http://localhost:9033"
+        description: "Browse Kafka topics and messages"
+      - name: "Spark Master"
+        url: "http://localhost:8080"
+        description: "Cluster state, workers, running apps"
+      - name: "Spark Worker"
+        url: "http://localhost:8083"
+        description: "Worker executors and logs"
+      - name: "Spark Driver"
+        url: "http://localhost:4040"
+        description: "Streaming job stages and metrics"
+      - name: "Airflow"
+        url: "http://localhost:8081"
+        description: "DAGs, task logs, streaming supervision"
+    exploration_steps:
+      - step: 1
+        title: "Watch events on Kafdrop"
+        description: "Open Kafdrop → click 'clickstream-events' topic → View Messages. Watch Last Offset tick up."
+      - step: 2
+        title: "See Spark Streaming at work"
+        description: "Open Spark Master → click 'ClickstreamStreaming' app → Structured Streaming tab."
+      - step: 3
+        title: "Confirm data on S3"
+        description: "Run: docker compose exec localstack awslocal s3 ls s3://user-behavior-analytics-silver/clickstream/delta/ --recursive"
+      - step: 4
+        title: "Run batch via Airflow"
+        description: "Open Airflow → unpause 'clickstream_batch' DAG → Trigger DAG. Watch run_batch_job → verify_gold_layer tasks execute."
+      - step: 5
+        title: "Test streaming supervision"
+        description: "Run: docker compose stop streaming-job. Wait ≤5 min. Watch 'clickstream_streaming_supervisor' DAG auto-restart the container."
+    profiles: [airflow-orchestrated]
+    compose_files: [docker-compose.yml]
+    env_file: .env.scenario-1
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+      - airflow
+
+  - id: scenario-3
+    name: "Trino SQL Engine"
+    description: >
+      Adds Trino SQL engine and Spark Thrift Server for querying Delta tables with SQL.
+      dbt deferred to a future PR.
+    services_list:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+      - trino
+      - spark-thrift
+    links:
+      - name: "Kafdrop"
+        url: "http://localhost:9033"
+        description: "Browse Kafka topics and messages"
+      - name: "Spark Master"
+        url: "http://localhost:8080"
+        description: "Cluster state, workers, running apps"
+      - name: "Spark Worker"
+        url: "http://localhost:8083"
+        description: "Worker executors and logs"
+      - name: "Spark Driver"
+        url: "http://localhost:4040"
+        description: "Streaming job stages and metrics"
+      - name: "Trino"
+        url: "http://localhost:8082"
+        description: "SQL queries against Delta Lake tables"
+    exploration_steps:
+      - step: 1
+        title: "Watch events on Kafdrop"
+        description: "Open Kafdrop → click 'clickstream-events' topic → View Messages."
+      - step: 2
+        title: "See Spark Streaming at work"
+        description: "Open Spark Master → click 'ClickstreamStreaming' app."
+      - step: 3
+        title: "Confirm data on S3"
+        description: "Run: docker compose exec localstack awslocal s3 ls s3://user-behavior-analytics-silver/clickstream/delta/ --recursive"
+      - step: 4
+        title: "Query Delta via Trino"
+        description: "Open Trino UI or use trino-cli. Catalog 'delta' maps to the S3 Delta tables."
+      - step: 5
+        title: "Query via Spark Thrift"
+        description: "Connect any JDBC/ODBC tool to localhost:10000. Spark SQL with Delta extensions."
+    profiles: [streaming-first, trino]
+    compose_files:
+      - docker-compose.yml
+      - compose/scenario-2.yml
+    env_file: .env.scenario-2
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+      - trino
+      - spark-thrift
+
+  - id: scenario-4
+    name: "Hudi Comparison"
+    description: >
+      Swaps Delta Lake for Apache Hudi. Same pipeline, different storage format.
+      Compare Delta transaction log vs Hudi timeline.
+    services_list:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
+    links:
+      - name: "Kafdrop"
+        url: "http://localhost:9033"
+        description: "Browse Kafka topics and messages"
+      - name: "Spark Master"
+        url: "http://localhost:8080"
+        description: "Cluster state, workers, running apps"
+      - name: "Spark Worker"
+        url: "http://localhost:8083"
+        description: "Worker executors and logs"
+      - name: "Spark Driver"
+        url: "http://localhost:4040"
+        description: "Streaming job stages and metrics"
+    exploration_steps:
+      - step: 1
+        title: "Watch events on Kafdrop"
+        description: "Open Kafdrop → click 'clickstream-events' topic."
+      - step: 2
+        title: "See Spark Streaming writing Hudi"
+        description: "Open Spark Master → Driver UI. Storage format is now Apache Hudi."
+      - step: 3
+        title: "Inspect Hudi timeline on S3"
+        description: "Run: docker compose exec localstack awslocal s3 ls s3://user-behavior-analytics-silver/clickstream/hudi/ --recursive"
+      - step: 4
+        title: "Compare with Delta (Scenario 1)"
+        description: "Switch back to Streaming First. Compare file layouts: Delta _delta_log vs Hudi .hoodie timeline."
+    profiles: [streaming-first]
+    compose_files:
+      - docker-compose.yml
+      - compose/scenario-3.yml
+    env_file: .env.scenario-3
+    services_expected:
+      - kafdrop
+      - zookeeper
+      - kafka
+      - spark-master
+      - spark-worker
+      - streaming-job
+      - producer
+      - localstack
+      - postgres
